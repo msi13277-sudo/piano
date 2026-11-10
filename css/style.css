@@ -140,3 +140,76 @@ button:disabled { opacity: 0.5; }
 }
 .card h2 { margin: 0 0 8px; }
 .card p { margin: 0 0 18px; color: var(--muted); line-height: 1.6; white-space: pre-line; }
+
+/* ---------- 2단계: 설정 패널, 결과 리포트 ---------- */
+
+.toolbar { gap: 6px; }
+.spacer { flex: 1; }
+
+#settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  padding: 10px 12px;
+  background: #191c21;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+}
+#settings[hidden] { display: none; }
+
+#settings label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+#settings label[hidden] { display: none; }
+#settings label.check { color: var(--text); }
+#settings .unit { color: var(--muted); }
+
+input[type="number"] {
+  width: 64px;
+  height: 38px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #2a2e36;
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+}
+
+input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+.row { display: flex; flex-wrap: wrap; gap: 6px; }
+.row.center { justify-content: center; }
+
+button[aria-expanded="true"] { border-color: var(--accent); }
+
+.card { max-height: 90vh; overflow-y: auto; }
+.card .hint { margin: 0 0 10px; font-size: 13px; }
+.card .hint:empty { display: none; }
+
+#result-measures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+#result-measures:empty { display: none; }
+#result-measures button {
+  height: 34px;
+  padding: 0 10px;
+  border-color: #7f1d1d;
+  background: #3b1515;
+  font-size: 13px;
+}
+
+#stage { overflow-x: hidden; }
