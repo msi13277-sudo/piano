@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=11';
+import { buildHanon1 } from './hanon.js?v=12';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=11';
-import * as sound from './sound.js?v=11';
+} from './midi.js?v=12';
+import * as sound from './sound.js?v=12';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -166,6 +166,12 @@ function updateMainButton() {
 // ---------- 악보 불러오기 ----------
 
 async function loadScore(xml) {
+  // 악보 파일은 글자로 된 것('<'로 시작)이거나 압축된 것('PK'로 시작)이다.
+  const head = typeof xml === 'string' ? xml.trimStart().slice(0, 2) : '';
+  if (!head.startsWith('<') && head !== 'PK') {
+    setMessage('악보 파일이 아닙니다. MusicXML 파일(.musicxml, .xml, .mxl)을 골라 주세요', 'bad');
+    return false;
+  }
   $('loading').hidden = false;
   state.loaded = false;
   stopTempo();
@@ -182,9 +188,14 @@ async function loadScore(xml) {
     state.loaded = true;
     syncControls();
     newPractice();
+    state.lastXml = xml;
+    return true;
   } catch (error) {
     console.error(error);
-    setMessage('악보를 불러오지 못했습니다: ' + error.message, 'bad');
+    // 실패하면 직전에 열려 있던 악보로 되돌려서 계속 쓸 수 있게 한다.
+    if (state.lastXml && state.lastXml !== xml) await loadScore(state.lastXml);
+    setMessage('악보를 불러오지 못했습니다. 파일이 손상됐거나 지원하지 않는 형식입니다', 'bad');
+    return false;
   } finally {
     $('loading').hidden = true;
   }
@@ -1416,20 +1427,38 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(rerenderKeepingProgress, 250);
 });
 
-$('song').addEventListener('change', (event) => {
-  if (event.target.value === 'file') {
+// 곡 선택 상자는 항상 지금 화면에 있는 곡 이름을 보여준다.
+let currentSong = 'hanon1';
+let openedFile = null; // 마지막으로 연 악보 파일 { name, data }
+
+$('song').addEventListener('change', async (event) => {
+  const value = event.target.value;
+  event.target.value = currentSong; // 실제로 바뀐 뒤에만 표시를 바꾼다
+  if (value === 'open') {
     $('file').click();
-    event.target.value = 'hanon1';
-  } else {
-    loadScore(buildHanon1());
+  } else if (value === 'hanon1') {
+    if (await loadScore(buildHanon1())) currentSong = 'hanon1';
+  } else if (value === 'opened' && openedFile) {
+    if (await loadScore(openedFile.data)) currentSong = 'opened';
   }
+  $('song').value = currentSong;
 });
 
 $('file').addEventListener('change', (event) => {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => loadScore(reader.result);
+  reader.onload = async () => {
+    if (!(await loadScore(reader.result))) return; // 실패하면 이전 곡이 그대로 남는다
+    const name = file.name.replace(/\.(musicxml|xml|mxl)$/i, '').replace(/_/g, ' ');
+    openedFile = { name, data: reader.result };
+    const option = $('song-opened');
+    option.textContent = name;
+    option.hidden = false;
+    currentSong = 'opened';
+    $('song').value = 'opened';
+  };
+  reader.onerror = () => setMessage('파일을 읽지 못했습니다', 'bad');
   if (file.name.toLowerCase().endsWith('.mxl')) {
     reader.readAsBinaryString(file);
   } else {
