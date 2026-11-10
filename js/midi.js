@@ -131,8 +131,13 @@ export async function connectBluetooth(onMessage, onState, showAll = false) {
       }
     }
     onState({ connected: false, name });
-    const failure = new Error(`${stage} 단계에서 실패: ${lastError.message}`);
-    failure.name = lastError.name;
+    // 선택 창을 닫았을 때의 NotFoundError와 구분되도록 이름을 따로 붙인다.
+    const failure = new Error(
+      `${stage} 단계에서 실패: ${lastError.message} (${lastError.name})`
+    );
+    failure.name = 'PianoConnectError';
+    failure.stage = stage;
+    failure.cause = lastError;
     throw failure;
   };
 

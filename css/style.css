@@ -115,6 +115,7 @@ button:disabled { opacity: 0.5; }
 .pill.on { background: var(--ok); }
 .pill.wait { background: var(--fixed); }
 
+#version { margin-left: auto; font-size: 12px; opacity: 0.6; }
 #message { color: var(--text); font-weight: 600; }
 #message.bad { color: #f87171; }
 #message.good { color: #4ade80; }
