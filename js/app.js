@@ -1,11 +1,11 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=5';
+import { buildHanon1 } from './hanon.js?v=6';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
-} from './midi.js?v=5';
+} from './midi.js?v=6';
 
 const COLOR_OK = '#16a34a'; // 한 번에 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -350,17 +350,36 @@ $('connect-all').addEventListener('click', () => tryBluetooth(true));
 
 $('connect-usb').addEventListener('click', async () => {
   if (!webMidiSupported()) {
-    setMessage('이 브라우저는 USB MIDI를 지원하지 않습니다.', 'bad');
+    setMessage('이 브라우저는 MIDI 기기 연결을 지원하지 않습니다.', 'bad');
     return;
   }
   try {
     const count = await connectWebMidi(onMidiMessage, onLinkState);
-    setMessage(count ? 'MIDI 기기가 연결되었습니다' : '연결된 MIDI 기기를 찾지 못했습니다', count ? 'good' : 'bad');
+    setMessage(
+      count
+        ? 'MIDI 기기가 연결되었습니다'
+        : '피아노가 아직 안 보입니다. MIDI BLE Connect에서 피아노를 연결하면 자동으로 잡힙니다.',
+      count ? 'good' : 'bad'
+    );
   } catch (error) {
     console.error(error);
     setMessage('MIDI 연결 실패: ' + error.message, 'bad');
   }
 });
+
+// 이전에 MIDI 사용을 허용한 적이 있으면 버튼을 누르지 않아도 바로 연결한다.
+// 한 번 연결해 두면 피아노가 나중에 잡혀도 자동으로 반영된다.
+async function autoConnectMidi() {
+  if (!webMidiSupported() || !navigator.permissions) return;
+  try {
+    const permission = await navigator.permissions.query({ name: 'midi' });
+    if (permission.state !== 'granted') return;
+    const count = await connectWebMidi(onMidiMessage, onLinkState);
+    if (count) setMessage('MIDI 기기가 연결되었습니다. 첫 음을 치면 시작합니다', 'good');
+  } catch {
+    // 자동 연결이 안 되면 버튼으로 연결하면 된다
+  }
+}
 
 // ---------- 화면 조작 ----------
 
@@ -431,4 +450,4 @@ if (new URLSearchParams(location.search).has('debug')) {
   window.pianoDebug = { state, handleNoteOn, debugPlay };
 }
 
-loadScore(buildHanon1());
+loadScore(buildHanon1()).then(autoConnectMidi);
