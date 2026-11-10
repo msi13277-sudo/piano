@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=8';
+import { buildHanon1 } from './hanon.js?v=9';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=8';
-import * as sound from './sound.js?v=8';
+} from './midi.js?v=9';
+import * as sound from './sound.js?v=9';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -247,6 +247,8 @@ function prepareSession(keepMessage = false) {
       ...s,
       notes: s.notes.filter(wanted),
       hits: new Set(),
+      wrongs: 0,
+      wrongNotes: [],
       result: null,
       off: false,
       sec: 0,
@@ -261,6 +263,7 @@ function prepareSession(keepMessage = false) {
   state.stepMistake = false;
   state.finished = false;
   state.missPtr = 0;
+  state.prevWrong = [];
   state.stats = { ok: 0, wrong: 0, timing: 0, miss: 0 };
   $('result').hidden = true;
 
@@ -318,7 +321,96 @@ function bumpMeasure(measure) {
 function handleNoteOn(midi) {
   if (!state.loaded || state.playing) return; // 듣기/재생 중에는 판정하지 않는다
   if (state.mode === 'tempo') tempoNoteOn(midi);
+  else if (state.mode === 'perform') performNoteOn(midi);
   else waitNoteOn(midi);
+}
+
+// ---------- 연주 모드: 틀려도 빨갛게 표시만 하고 다음으로 넘어간다 ----------
+
+function performNoteOn(midi) {
+  if (state.finished) return;
+  const steps = state.steps;
+  const step = steps[state.pos];
+  if (!step) return;
+  const expected = expectedSet(step);
+
+  if (expected.has(midi)) {
+    if (step.hits.has(midi)) return;
+    step.hits.add(midi);
+    for (const n of step.notes) {
+      if (n.midi === midi) paint(n.note, COLOR_OK);
+    }
+    completePerformStep(step, expected);
+    return;
+  }
+
+  // 지금 자리의 음이 아니다. 무조건 "틀림"으로 넘기면 한 번의 실수 뒤로
+  // 계속 한 칸씩 밀려서 전부 빨갛게 되므로, 흔한 두 경우를 먼저 가려낸다.
+  const untouched = step.hits.size === 0 && step.wrongs === 0;
+  const previous = steps[state.pos - 1];
+  const next = steps[state.pos + 1];
+
+  // (1) 한 자리를 건너뛰고 친 경우: 직전에 틀렸다고 본 음이 사실은 이 자리의 음이었고,
+  //     지금 친 음은 그다음 자리의 음이다.
+  if (
+    untouched &&
+    previous?.result === 'bad' &&
+    next?.notes.some((n) => n.midi === midi) &&
+    [...expected].every((m) => state.prevWrong.includes(m))
+  ) {
+    step.hits = new Set(expected);
+    step.result = 'ok';
+    state.stats.ok++;
+    for (const n of step.notes) paint(n.note, COLOR_OK);
+    state.prevWrong = [];
+    state.pos++;
+    moveCursorToStep();
+    performNoteOn(midi);
+    return;
+  }
+
+  // (2) 직전에 틀린 자리를 고쳐 친 경우: 진행 위치는 그대로 두고 고친 것으로 표시한다.
+  if (untouched && previous?.result === 'bad' && previous.notes.some((n) => n.midi === midi)) {
+    for (const n of previous.notes) {
+      if (n.midi === midi) paint(n.note, COLOR_FIXED);
+    }
+    setMessage('고쳐 쳤습니다');
+    return;
+  }
+
+  // (3) 틀린 음
+  step.wrongs++;
+  step.wrongNotes.push(midi);
+  const want = [...expected].sort((a, b) => a - b).map(noteName).join(', ');
+  setMessage(`틀린 음 ${noteName(midi)} (악보: ${want})`, 'bad');
+  flashWrong();
+  completePerformStep(step, expected);
+}
+
+// 악보에 적힌 음의 개수만큼 건반을 눌렀으면, 맞았든 틀렸든 그 자리를 끝내고 넘어간다.
+function completePerformStep(step, expected) {
+  const allHit = step.hits.size === expected.size;
+  if (!allHit && step.hits.size + step.wrongs < expected.size) return;
+
+  if (step.wrongs > 0) {
+    step.result = 'bad';
+    state.stats.wrong++;
+    bumpMeasure(step.measure);
+    for (const n of step.notes) {
+      if (!step.hits.has(n.midi)) paint(n.note, COLOR_BAD);
+      else if (allHit) paint(n.note, COLOR_FIXED); // 음은 다 쳤지만 다른 건반도 함께 눌렀다
+    }
+    state.prevWrong = step.wrongNotes;
+  } else {
+    step.result = 'ok';
+    state.stats.ok++;
+    state.prevWrong = [];
+  }
+
+  state.pos++;
+  if (state.pos >= state.steps.length) finishPass();
+  else moveCursorToStep();
+  updateStatus();
 }
 
 // ---------- 기다림 모드: 맞는 음을 쳐야 다음으로 넘어간다 ----------
@@ -1144,7 +1236,7 @@ function debugPlay(correct) {
   if (!step) return;
   const expected = expectedSet(step);
   if (correct) {
-    const taken = state.mode === 'tempo' ? step.hits : state.hit;
+    const taken = state.mode === 'wait' ? state.hit : step.hits;
     const next = [...expected].find((m) => !taken.has(m));
     if (next != null) handleNoteOn(next);
   } else {

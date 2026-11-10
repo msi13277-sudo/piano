@@ -1,5 +1,5 @@
 // 소리 내기: 폰 스피커(간단한 합성음) 또는 연결된 피아노(MIDI 출력).
-import { getMidiOutputs } from './midi.js?v=8';
+import { getMidiOutputs } from './midi.js?v=9';
 
 let ctx = null;
 let master = null;
