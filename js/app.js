@@ -327,6 +327,7 @@ async function tryBluetooth(showAll) {
     return;
   }
   try {
+    setMessage('피아노를 선택하면 연결을 시작합니다. 10초 정도 걸릴 수 있습니다.');
     await connectBluetooth(onMidiMessage, onLinkState, showAll);
     $('connect-all').hidden = true;
     setMessage('피아노가 연결되었습니다', 'good');

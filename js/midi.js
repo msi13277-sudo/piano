@@ -97,32 +97,61 @@ export async function connectBluetooth(onMessage, onState, showAll = false) {
   );
   const name = device.name || '블루투스 피아노';
 
-  const attach = async () => {
-    const server = await device.gatt.connect();
-    const service = await server.getPrimaryService(BLE_MIDI_SERVICE);
-    const characteristic = await service.getCharacteristic(BLE_MIDI_CHARACTERISTIC);
-    characteristic.addEventListener('characteristicvaluechanged', (event) => {
-      parseBleMidi(event.target.value, onMessage);
-    });
-    await characteristic.startNotifications();
-    onState({ connected: true, name });
-  };
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  device.addEventListener('gattserverdisconnected', async () => {
+  // 블루투스 연결 직후에는 서비스 조회나 알림 설정이 실패하는 일이 흔해서
+  // (특히 첫 연결에서 기기 간 인증이 진행되는 동안) 몇 번 다시 시도한다.
+  const attach = async () => {
     onState({ connected: false, name, reconnecting: true });
-    for (let attempt = 0; attempt < 5; attempt++) {
+    let lastError = null;
+    let stage = '';
+    for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
-        await attach();
+        stage = '피아노 접속';
+        if (!device.gatt.connected) await device.gatt.connect();
+        stage = 'MIDI 서비스 찾기';
+        const service = await device.gatt.getPrimaryService(BLE_MIDI_SERVICE);
+        stage = 'MIDI 채널 찾기';
+        const characteristic = await service.getCharacteristic(BLE_MIDI_CHARACTERISTIC);
+        characteristic.oncharacteristicvaluechanged = (event) => {
+          parseBleMidi(event.target.value, onMessage);
+        };
+        stage = '건반 신호 받기 설정';
+        await characteristic.startNotifications();
+        try {
+          await characteristic.readValue(); // 일부 기기는 한 번 읽어야 신호를 보내기 시작한다
+        } catch {
+          // 읽기를 지원하지 않아도 문제없다
+        }
+        onState({ connected: true, name });
         return;
-      } catch {
-        // 다음 시도로 넘어간다
+      } catch (error) {
+        lastError = error;
+        await pause(1500);
       }
     }
     onState({ connected: false, name });
+    const failure = new Error(`${stage} 단계에서 실패: ${lastError.message}`);
+    failure.name = lastError.name;
+    throw failure;
+  };
+
+  let busy = false;
+  const guardedAttach = async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      await attach();
+    } finally {
+      busy = false;
+    }
+  };
+
+  device.addEventListener('gattserverdisconnected', () => {
+    guardedAttach().catch(() => {});
   });
 
-  await attach();
+  await guardedAttach();
 }
 
 export async function connectWebMidi(onMessage, onState) {
