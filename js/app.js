@@ -1,11 +1,11 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=4';
+import { buildHanon1 } from './hanon.js?v=5';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
-} from './midi.js?v=4';
+} from './midi.js?v=5';
 
 const COLOR_OK = '#16a34a'; // 한 번에 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -328,7 +328,7 @@ async function tryBluetooth(showAll) {
     return;
   }
   try {
-    setMessage('피아노를 선택하면 연결을 시작합니다. 10초 정도 걸릴 수 있습니다.');
+    setMessage('피아노를 선택하면 연결을 시작합니다. 길면 30초 정도 걸릴 수 있습니다.');
     await connectBluetooth(onMidiMessage, onLinkState, showAll);
     $('connect-all').hidden = true;
     setMessage('피아노가 연결되었습니다', 'good');
@@ -340,14 +340,8 @@ async function tryBluetooth(showAll) {
       return;
     }
     console.error(error);
-    if (error.stage === 'MIDI 서비스 찾기' && error.cause?.name === 'NotFoundError') {
-      setMessage(
-        '피아노에 접속은 됐지만 MIDI 기능이 꺼져 있습니다. 피아노의 블루투스 설정을 MIDI가 포함된 모드로 바꿔주세요.',
-        'bad'
-      );
-    } else {
-      setMessage(`연결 실패: ${error.message}`, 'bad');
-    }
+    const seen = error.visible ? ` [보이는 서비스: ${error.visible}]` : '';
+    setMessage(`연결 실패: ${error.message}${seen}`, 'bad');
   }
 }
 

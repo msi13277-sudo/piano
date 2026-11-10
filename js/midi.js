@@ -83,16 +83,18 @@ export function webMidiSupported() {
 // 피아노에 따라 검색 신호에 MIDI 서비스 표시를 넣지 않는 경우가 있어서
 // 이름으로도 찾고, showAll이면 주변의 모든 기기를 보여준다.
 export async function connectBluetooth(onMessage, onState, showAll = false) {
+  // 0x1800/0x180a는 모든 블루투스 기기에 있는 기본 서비스로, 진단용으로만 접근을 요청한다.
+  const optionalServices = [BLE_MIDI_SERVICE, 0x1800, 0x180a];
   const device = await navigator.bluetooth.requestDevice(
     showAll
-      ? { acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] }
+      ? { acceptAllDevices: true, optionalServices }
       : {
           filters: [
             { services: [BLE_MIDI_SERVICE] },
             { namePrefix: 'FP' },
             { namePrefix: 'Roland' },
           ],
-          optionalServices: [BLE_MIDI_SERVICE],
+          optionalServices,
         }
   );
   const name = device.name || '블루투스 피아노';
@@ -127,9 +129,32 @@ export async function connectBluetooth(onMessage, onState, showAll = false) {
         return;
       } catch (error) {
         lastError = error;
+        // 브라우저는 한 번 조회한 서비스 목록을 연결이 유지되는 동안 그대로 쓰므로,
+        // 목록이 불완전하게 잡혔을 때는 끊고 다시 붙어야 새로 조회된다.
+        try {
+          device.gatt.disconnect();
+        } catch {
+          // 이미 끊겨 있으면 무시
+        }
         await pause(1500);
       }
     }
+
+    // 원인 파악용: 피아노가 실제로 어떤 서비스를 내보이는지 적어둔다.
+    let visible = '';
+    try {
+      if (!device.gatt.connected) await device.gatt.connect();
+      const services = await device.gatt.getPrimaryServices();
+      visible = services.map((s) => s.uuid.slice(0, 8)).join(', ') || '없음';
+    } catch (error) {
+      visible = `없음(${error.name})`;
+    }
+    try {
+      device.gatt.disconnect();
+    } catch {
+      // 무시
+    }
+
     onState({ connected: false, name });
     // 선택 창을 닫았을 때의 NotFoundError와 구분되도록 이름을 따로 붙인다.
     const failure = new Error(
@@ -137,6 +162,7 @@ export async function connectBluetooth(onMessage, onState, showAll = false) {
     );
     failure.name = 'PianoConnectError';
     failure.stage = stage;
+    failure.visible = visible;
     failure.cause = lastError;
     throw failure;
   };
