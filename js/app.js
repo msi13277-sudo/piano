@@ -1,11 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=7';
+import { buildHanon1 } from './hanon.js?v=8';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
-} from './midi.js?v=7';
+  getMidiOutputs,
+} from './midi.js?v=8';
+import * as sound from './sound.js?v=8';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -64,7 +66,18 @@ const state = {
   pass: 1,
   paint: new Map(), // 색칠한 음표 → 색
   loopTimer: 0,
+
+  // 듣기와 녹음
+  soundOut: 'phone', // 'phone' 또는 'piano'
+  playing: false, // 듣기나 녹음 재생이 진행 중
+  listening: false, // 그중 악보 듣기
 };
+
+// 재생 엔진 상태: 소리 이벤트와 화면 갱신 이벤트를 시간순으로 내보낸다.
+const playback = { timer: 0, start: 0, audio: [], calls: [], ai: 0, ci: 0, end: 0, onEnd: null };
+
+// 녹음 상태. take는 마지막으로 녹음한 연주.
+const rec = { active: false, start: 0, events: [], take: null, timer: 0 };
 
 function noteName(midi) {
   return NOTE_NAMES[midi % 12] + (Math.floor(midi / 12) - 1);
@@ -88,7 +101,7 @@ function flashWrong() {
 
 // ---------- 설정 저장 ----------
 
-const PREF_KEYS = ['mode', 'bpm', 'tol', 'metronome'];
+const PREF_KEYS = ['mode', 'bpm', 'tol', 'metronome', 'soundOut'];
 
 function loadPrefs() {
   try {
@@ -117,6 +130,8 @@ function syncControls() {
   $('tol').value = String(state.tol);
   $('metronome').checked = state.metronome;
   $('loop').checked = state.loop;
+  $('sound-out').value = state.soundOut;
+  sound.setTarget(state.soundOut);
   $('from').value = state.from;
   $('to').value = state.to;
   $('from').min = $('to').min = state.firstMeasure;
@@ -130,6 +145,11 @@ function syncControls() {
 function updateMainButton() {
   $('restart').textContent =
     state.mode === 'tempo' ? (state.running ? '정지' : '시작') : '처음부터';
+  $('listen').textContent = state.listening ? '듣기 정지' : '듣기';
+  $('record').textContent = rec.active ? '녹음 중지' : '녹음';
+  $('record').classList.toggle('recording', rec.active);
+  $('take').hidden = !rec.take;
+  $('take-play').textContent = state.playing && !state.listening ? '정지' : '재생';
 }
 
 // ---------- 악보 불러오기 ----------
@@ -173,10 +193,14 @@ function collectSteps() {
         if (note.isRest()) continue;
         if (note.NoteTie && note.NoteTie.StartNote !== note) continue; // 붙임줄로 이어진 음
         const staff = note.ParentStaff ?? note.ParentStaffEntry?.ParentStaff;
+        // 붙임줄이 있으면 이어진 음표들의 길이를 모두 더한다.
+        const tied = note.NoteTie?.Notes ?? [note];
+        const length = tied.reduce((sum, n) => sum + (n.Length?.RealValue ?? 0), 0);
         notes.push({
           note,
           midi: note.halfTone + 12,
           staff: staff?.idInMusicSheet ?? 0,
+          len: length * 4, // 음 길이(4분음표 단위), 듣기에서 쓴다
         });
       }
     }
@@ -211,6 +235,7 @@ function newPractice() {
 function prepareSession(keepMessage = false) {
   clearTimeout(state.loopTimer);
   stopTempo();
+  stopPlayback();
 
   const wanted = (n) =>
     state.hand === 'both' || (state.hand === 'right' ? n.staff === 0 : n.staff !== 0);
@@ -291,7 +316,7 @@ function bumpMeasure(measure) {
 }
 
 function handleNoteOn(midi) {
-  if (!state.loaded) return;
+  if (!state.loaded || state.playing) return; // 듣기/재생 중에는 판정하지 않는다
   if (state.mode === 'tempo') tempoNoteOn(midi);
   else waitNoteOn(midi);
 }
@@ -344,34 +369,10 @@ function waitNoteOn(midi) {
 
 // ---------- 템포 모드: 정해진 빠르기로 흘러가며 박자까지 판정한다 ----------
 
-let audio = null;
-
-function ensureAudio() {
-  try {
-    audio ??= new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state === 'suspended') audio.resume();
-  } catch {
-    audio = null; // 소리를 못 내도 판정은 계속한다
-  }
-}
-
-function scheduleClick(delay, countIn) {
-  if (!audio) return;
-  const at = audio.currentTime + Math.max(0, delay);
-  const osc = audio.createOscillator();
-  const gain = audio.createGain();
-  osc.frequency.value = countIn ? 1500 : 1000;
-  gain.gain.setValueAtTime(0.25, at);
-  gain.gain.exponentialRampToValueAtTime(0.001, at + 0.05);
-  osc.connect(gain).connect(audio.destination);
-  osc.start(at);
-  osc.stop(at + 0.06);
-}
-
 function startTempo(keepMessage = false) {
   prepareSession(keepMessage);
   if (!state.steps.length) return;
-  ensureAudio();
+  sound.ensureAudio();
   const beat = 60 / state.bpm;
   state.t0 = nowSec() + COUNT_IN_BEATS * beat + 0.1;
   state.clickIndex = -COUNT_IN_BEATS;
@@ -397,7 +398,7 @@ function tick() {
   // 메트로놈: 예비박은 항상 소리를 내고, 그 뒤는 설정에 따른다.
   while (state.clickIndex * beat <= t + 0.15) {
     if (state.clickIndex < 0 || state.metronome) {
-      scheduleClick(state.clickIndex * beat - t, state.clickIndex < 0);
+      sound.click(state.clickIndex * beat - t, state.clickIndex < 0);
     }
     state.clickIndex++;
   }
@@ -499,6 +500,229 @@ function tempoNoteOn(midi) {
     }
     updateStatus();
   }
+}
+
+// ---------- 재생 엔진 (듣기와 녹음 재생이 함께 쓴다) ----------
+
+function startPlayback(audioEvents, callEvents, endSec, onEnd) {
+  stopPlayback();
+  sound.ensureAudio();
+  Object.assign(playback, {
+    start: nowSec() + 0.25,
+    audio: audioEvents,
+    calls: callEvents,
+    ai: 0,
+    ci: 0,
+    end: endSec,
+    onEnd,
+  });
+  state.playing = true;
+  playback.timer = setInterval(pumpPlayback, 25);
+}
+
+function pumpPlayback() {
+  const t = nowSec() - playback.start;
+  // 소리는 조금 앞서서 예약해야 끊기지 않는다.
+  while (playback.ai < playback.audio.length && playback.audio[playback.ai].t <= t + 0.15) {
+    const event = playback.audio[playback.ai++];
+    const delay = event.t - t;
+    if (event.raw) sound.sendRaw(event.raw, delay);
+    else sound.playNote(event.midi, event.vel, delay, event.dur);
+  }
+  while (playback.ci < playback.calls.length && playback.calls[playback.ci].t <= t) {
+    playback.calls[playback.ci++].fn();
+  }
+  if (t >= playback.end) {
+    const done = playback.onEnd;
+    stopPlayback(false);
+    done?.();
+  }
+}
+
+function stopPlayback(silence = true) {
+  if (!state.playing) return;
+  clearInterval(playback.timer);
+  state.playing = false;
+  state.listening = false;
+  if (silence) sound.stopAll();
+  updateMainButton();
+}
+
+// ---------- 듣기: 악보를 지금 설정한 빠르기로 들려준다 ----------
+
+function startListening() {
+  prepareSession();
+  if (!state.steps.length) return;
+  const perBeat = 60 / state.bpm;
+  const audio = [];
+  const calls = [];
+  state.steps.forEach((step, index) => {
+    for (const n of step.notes) {
+      audio.push({
+        t: step.sec,
+        midi: n.midi,
+        vel: 80,
+        dur: Math.max(0.08, n.len * perBeat * 0.95),
+      });
+    }
+    calls.push({
+      t: step.sec,
+      fn: () => {
+        state.pos = index;
+        moveCursorToStep();
+        updateStatus();
+      },
+    });
+  });
+  const last = state.steps.at(-1);
+  const end = last.sec + Math.max(...last.notes.map((n) => n.len)) * perBeat + 0.3;
+  startPlayback(audio, calls, end, () => {
+    prepareSession();
+    setMessage('듣기가 끝났습니다');
+  });
+  state.listening = true;
+  setMessage('악보를 들려주는 중입니다');
+  updateMainButton();
+}
+
+// ---------- 녹음: 피아노에서 들어온 연주(건반, 세기, 페달)를 기록한다 ----------
+
+function formatTime(seconds) {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+function startRecording() {
+  stopPlayback();
+  rec.active = true;
+  rec.start = nowSec();
+  rec.events = [];
+  setMessage('녹음 중입니다. 연주하세요');
+  rec.timer = setInterval(() => {
+    $('record').textContent = `녹음 중지 ${formatTime(nowSec() - rec.start)}`;
+  }, 500);
+  updateMainButton();
+}
+
+function stopRecording() {
+  rec.active = false;
+  clearInterval(rec.timer);
+  if (!rec.events.length) {
+    setMessage('녹음된 음이 없습니다. 피아노가 연결되어 있는지 확인해 주세요', 'bad');
+  } else {
+    // 첫 음 앞의 긴 공백은 잘라낸다.
+    const first = rec.events[0].t;
+    const lead = Math.min(first, 0.3);
+    const events = rec.events.map((e) => ({ t: e.t - first + lead, data: e.data }));
+    rec.take = { events, length: events.at(-1).t, at: new Date() };
+    const notes = events.filter((e) => (e.data[0] & 0xf0) === 0x90 && e.data[2] > 0).length;
+    $('take-info').textContent = `녹음 ${formatTime(rec.take.length)} · 음 ${notes}개`;
+    setMessage('녹음을 마쳤습니다', 'good');
+  }
+  rec.events = [];
+  updateMainButton();
+}
+
+// 녹음된 메시지를 "언제, 어떤 음을, 얼마나 길게"로 바꾼다. 페달을 밟고 있으면 뗄 때까지 이어진다.
+function takeToNotes(events) {
+  const notes = [];
+  const open = new Map(); // 누르고 있는 건반
+  const held = []; // 건반은 뗐지만 페달로 이어지는 음
+  let pedal = false;
+  for (const event of events) {
+    const [status, d1, d2] = event.data;
+    const command = status & 0xf0;
+    if (command === 0x90 && d2 > 0) {
+      const previous = open.get(d1);
+      if (previous) previous.dur = event.t - previous.t;
+      const note = { t: event.t, midi: d1, vel: d2, dur: null };
+      notes.push(note);
+      open.set(d1, note);
+    } else if (command === 0x80 || command === 0x90) {
+      const note = open.get(d1);
+      if (note) {
+        open.delete(d1);
+        if (pedal) held.push(note);
+        else note.dur = event.t - note.t;
+      }
+    } else if (command === 0xb0 && d1 === 64) {
+      const down = d2 >= 64;
+      if (pedal && !down) {
+        for (const note of held) note.dur = event.t - note.t;
+        held.length = 0;
+      }
+      pedal = down;
+    }
+  }
+  const end = events.at(-1).t;
+  for (const note of notes) {
+    if (note.dur == null) note.dur = end - note.t + 0.5;
+    note.dur = Math.max(0.05, note.dur);
+  }
+  return notes;
+}
+
+function playTake() {
+  if (!rec.take) return;
+  if (state.playing) {
+    stopPlayback();
+    setMessage('재생을 멈췄습니다');
+    return;
+  }
+  if (rec.active) stopRecording();
+  stopTempo();
+  const audio =
+    sound.getTarget() === 'piano'
+      ? rec.take.events.map((e) => ({ t: e.t, raw: e.data }))
+      : takeToNotes(rec.take.events);
+  startPlayback(audio, [], rec.take.length + 1, () => {
+    setMessage('녹음 재생이 끝났습니다');
+  });
+  setMessage('녹음을 재생하는 중입니다');
+  updateMainButton();
+}
+
+// 녹음을 표준 MIDI 파일(.mid)로 만든다. 다른 음악 프로그램에서도 열 수 있다.
+function takeToMidiFile(take) {
+  const TICKS_PER_SECOND = 960; // 4분음표 480틱, 템포 120 기준
+  const varLen = (value) => {
+    const bytes = [value & 0x7f];
+    while ((value >>= 7) > 0) bytes.unshift((value & 0x7f) | 0x80);
+    return bytes;
+  };
+  const track = [0x00, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20];
+  let lastTick = 0;
+  for (const event of take.events) {
+    const tick = Math.round(event.t * TICKS_PER_SECOND);
+    track.push(...varLen(tick - lastTick), ...event.data);
+    lastTick = tick;
+  }
+  track.push(0x00, 0xff, 0x2f, 0x00);
+  const size = track.length;
+  return new Uint8Array([
+    0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xe0,
+    0x4d, 0x54, 0x72, 0x6b,
+    (size >>> 24) & 0xff, (size >>> 16) & 0xff, (size >>> 8) & 0xff, size & 0xff,
+    ...track,
+  ]);
+}
+
+function saveTake() {
+  if (!rec.take) return;
+  const d = rec.take.at;
+  const pad = (n) => String(n).padStart(2, '0');
+  const name =
+    `piano-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+    `-${pad(d.getHours())}${pad(d.getMinutes())}.mid`;
+  const url = URL.createObjectURL(new Blob([takeToMidiFile(rec.take)], { type: 'audio/midi' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  setMessage(`${name} 파일로 저장했습니다`, 'good');
 }
 
 // ---------- 회차 종료와 결과 ----------
@@ -660,6 +884,11 @@ function rerenderKeepingProgress() {
 
 function onMidiMessage(status, d1, d2) {
   const command = status & 0xf0;
+  const isNote = command === 0x90 || command === 0x80;
+  const isPedal = command === 0xb0 && d1 === 64;
+  if (rec.active && !state.playing && (isNote || isPedal)) {
+    rec.events.push({ t: nowSec() - rec.start, data: [status, d1, d2] });
+  }
   if (command === 0x90 && d2 > 0) handleNoteOn(d1);
 }
 
@@ -758,6 +987,38 @@ $('restart').addEventListener('click', () => {
     state.perMeasure = new Map();
     state.pass = 1;
     startTempo();
+  }
+});
+
+$('listen').addEventListener('click', () => {
+  if (!state.loaded) return;
+  if (state.listening) {
+    prepareSession();
+    setMessage('듣기를 멈췄습니다');
+  } else {
+    startListening();
+  }
+});
+
+$('record').addEventListener('click', () => {
+  if (rec.active) stopRecording();
+  else startRecording();
+});
+$('take-play').addEventListener('click', playTake);
+$('take-save').addEventListener('click', saveTake);
+$('take-delete').addEventListener('click', () => {
+  if (state.playing && !state.listening) stopPlayback();
+  rec.take = null;
+  setMessage('녹음을 지웠습니다');
+  updateMainButton();
+});
+
+$('sound-out').addEventListener('change', (event) => {
+  state.soundOut = event.target.value;
+  sound.setTarget(state.soundOut);
+  savePrefs();
+  if (state.soundOut === 'piano' && !getMidiOutputs().length) {
+    setMessage('피아노로 보내는 통로가 안 잡혀서 폰 스피커로 재생합니다. 피아노 연결을 먼저 해주세요.', 'bad');
   }
 });
 
@@ -897,7 +1158,9 @@ if (new URLSearchParams(location.search).has('debug')) {
   $('debug').hidden = false;
   $('debug-right').addEventListener('click', () => debugPlay(true));
   $('debug-wrong').addEventListener('click', () => debugPlay(false));
-  window.pianoDebug = { state, handleNoteOn, debugPlay, startTempo, nowSec };
+  window.pianoDebug = {
+    state, rec, handleNoteOn, onMidiMessage, debugPlay, startTempo, nowSec, takeToNotes, takeToMidiFile,
+  };
 }
 
 loadPrefs();

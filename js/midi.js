@@ -185,10 +185,18 @@ export async function connectBluetooth(onMessage, onState, showAll = false) {
   await guardedAttach();
 }
 
+let midiOutputs = [];
+
+// 피아노로 소리를 보낼 수 있는 출력 목록(듣기, 녹음 재생용).
+export function getMidiOutputs() {
+  return midiOutputs;
+}
+
 export async function connectWebMidi(onMessage, onState) {
   const access = await navigator.requestMIDIAccess();
 
   const refresh = () => {
+    midiOutputs = [...access.outputs.values()];
     const names = [];
     for (const input of access.inputs.values()) {
       input.onmidimessage = (event) => {

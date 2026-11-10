@@ -213,3 +213,21 @@ button[aria-expanded="true"] { border-color: var(--accent); }
 }
 
 #stage { overflow-x: hidden; }
+
+/* ---------- 듣기와 녹음 ---------- */
+
+button.recording { background: var(--bad); border-color: var(--bad); color: #fff; }
+
+#take {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 6px 12px;
+  background: #191c21;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+#take[hidden] { display: none; }
+#take-info { margin-right: auto; color: var(--text); }
+#take button { height: 34px; }

@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#14161a">
   <title>피아노 연습</title>
-  <link rel="stylesheet" href="css/style.css?v=7">
+  <link rel="stylesheet" href="css/style.css?v=8">
 </head>
 <body>
   <header class="toolbar">
     <button id="connect-usb" class="primary">피아노 연결</button>
     <button id="restart">처음부터</button>
+    <button id="listen">듣기</button>
+    <button id="record">녹음</button>
     <button id="show-result">결과</button>
     <button id="settings-toggle" aria-expanded="false" aria-controls="settings">설정</button>
     <span class="spacer"></span>
@@ -39,7 +41,7 @@
         <option value="tempo">템포 (박자까지 판정)</option>
       </select>
     </label>
-    <label class="tempo-only">빠르기
+    <label>빠르기
       <input id="bpm" type="number" min="20" max="240" step="1" inputmode="numeric">
       <span class="unit">BPM</span>
     </label>
@@ -59,6 +61,12 @@
     </label>
     <button id="range-all">전체 구간</button>
     <label class="check"><input id="loop" type="checkbox"> 구간 반복</label>
+    <label>소리
+      <select id="sound-out">
+        <option value="phone">폰 스피커</option>
+        <option value="piano">피아노로 재생</option>
+      </select>
+    </label>
     <div class="row">
       <button id="connect">블루투스 직접 연결</button>
       <button id="connect-all" hidden>모든 기기 보기</button>
@@ -75,12 +83,19 @@
     <button id="debug-wrong">틀린 음 입력</button>
   </div>
 
+  <div id="take" hidden>
+    <span id="take-info"></span>
+    <button id="take-play">재생</button>
+    <button id="take-save">저장</button>
+    <button id="take-delete">지우기</button>
+  </div>
+
   <footer class="status">
     <span id="link" class="pill off">연결 안 됨</span>
     <span id="progress">–</span>
     <span id="score">–</span>
     <span id="message"></span>
-    <span id="version">v7</span>
+    <span id="version">v8</span>
   </footer>
 
   <div id="result" hidden>
@@ -97,6 +112,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
-  <script type="module" src="js/app.js?v=7"></script>
+  <script type="module" src="js/app.js?v=8"></script>
 </body>
 </html>
