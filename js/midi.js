@@ -80,10 +80,21 @@ export function webMidiSupported() {
   return 'requestMIDIAccess' in navigator;
 }
 
-export async function connectBluetooth(onMessage, onState) {
-  const device = await navigator.bluetooth.requestDevice({
-    filters: [{ services: [BLE_MIDI_SERVICE] }],
-  });
+// 피아노에 따라 검색 신호에 MIDI 서비스 표시를 넣지 않는 경우가 있어서
+// 이름으로도 찾고, showAll이면 주변의 모든 기기를 보여준다.
+export async function connectBluetooth(onMessage, onState, showAll = false) {
+  const device = await navigator.bluetooth.requestDevice(
+    showAll
+      ? { acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] }
+      : {
+          filters: [
+            { services: [BLE_MIDI_SERVICE] },
+            { namePrefix: 'FP' },
+            { namePrefix: 'Roland' },
+          ],
+          optionalServices: [BLE_MIDI_SERVICE],
+        }
+  );
   const name = device.name || '블루투스 피아노';
 
   const attach = async () => {

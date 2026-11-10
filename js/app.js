@@ -321,20 +321,29 @@ async function keepScreenAwake() {
   }
 }
 
-$('connect').addEventListener('click', async () => {
+async function tryBluetooth(showAll) {
   if (!bluetoothSupported()) {
     setMessage('이 브라우저는 블루투스 연결을 지원하지 않습니다. 안드로이드 크롬에서 열어주세요.', 'bad');
     return;
   }
   try {
-    await connectBluetooth(onMidiMessage, onLinkState);
+    await connectBluetooth(onMidiMessage, onLinkState, showAll);
+    $('connect-all').hidden = true;
     setMessage('피아노가 연결되었습니다', 'good');
   } catch (error) {
-    if (error.name === 'NotFoundError') return; // 사용자가 선택 창을 닫음
+    if (error.name === 'NotFoundError') {
+      // 선택 창을 그냥 닫은 경우: 목록에 피아노가 없었을 수 있다.
+      $('connect-all').hidden = false;
+      setMessage('목록에 피아노가 없었다면 "모든 기기 보기"를 눌러보세요');
+      return;
+    }
     console.error(error);
-    setMessage('연결 실패: ' + error.message, 'bad');
+    setMessage(`연결 실패: ${error.message} (${error.name})`, 'bad');
   }
-});
+}
+
+$('connect').addEventListener('click', () => tryBluetooth(false));
+$('connect-all').addEventListener('click', () => tryBluetooth(true));
 
 $('connect-usb').addEventListener('click', async () => {
   if (!webMidiSupported()) {
