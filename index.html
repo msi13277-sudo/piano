@@ -3,86 +3,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#14161a">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1b1d22" media="(prefers-color-scheme: dark)">
   <title>피아노 연습</title>
-  <link rel="stylesheet" href="css/style.css?v=12">
+  <link rel="stylesheet" href="css/style.css?v=13">
 </head>
 <body>
-  <header class="toolbar">
-    <button id="connect-usb" class="primary">피아노 연결</button>
-    <button id="restart">처음부터</button>
-    <span class="transport" role="group" aria-label="악보 듣기">
-      <button id="listen-play" aria-label="듣기 재생"><svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg><svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z"/></svg></button>
-      <button id="listen-stop" aria-label="듣기 정지" title="정지"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 5.5h13v13h-13z"/></svg></button>
-    </span>
-    <button id="record">녹음</button>
-    <button id="range-pick">구간 설정</button>
-    <button id="show-result">결과</button>
-    <button id="settings-toggle" aria-expanded="false" aria-controls="settings">설정</button>
-    <span class="spacer"></span>
-    <button id="zoom-out" aria-label="악보 작게">−</button>
-    <button id="zoom-in" aria-label="악보 크게">+</button>
+  <header class="topbar">
+    <button id="menu-toggle" class="icon-btn" aria-label="메뉴" aria-expanded="false" aria-controls="menu">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <div class="titles">
+      <div id="title">하농 1번</div>
+      <div id="progress">–</div>
+    </div>
+    <div id="mode" class="segmented" role="group" aria-label="모드">
+      <button data-mode="wait">연습</button>
+      <button data-mode="perform">연주</button>
+      <button data-mode="tempo">템포</button>
+    </div>
+    <button id="connect-usb" class="link-btn" aria-label="피아노 연결"><span id="link" class="off">연결 안 됨</span></button>
   </header>
 
-  <section id="settings" hidden>
-    <label>곡
-      <select id="song">
-        <option value="hanon1">하농 1번</option>
-        <option value="opened" id="song-opened" hidden></option>
-        <option value="open">악보 파일 열기…</option>
-      </select>
-    </label>
-    <input id="file" type="file" accept=".musicxml,.xml,.mxl" hidden>
-    <label>손
-      <select id="hand">
-        <option value="both">양손</option>
-        <option value="right">오른손</option>
-        <option value="left">왼손</option>
-      </select>
-    </label>
-    <label>모드
-      <select id="mode">
-        <option value="wait">연습모드</option>
-        <option value="perform">연주모드</option>
-        <option value="tempo">템포모드</option>
-      </select>
-    </label>
-    <label>빠르기
-      <input id="bpm" type="number" min="20" max="240" step="1" inputmode="numeric">
-      <span class="unit">BPM</span>
-    </label>
-    <label class="tempo-only">박자 허용
-      <select id="tol">
-        <option value="0.06">엄격</option>
-        <option value="0.1">보통</option>
-        <option value="0.16">느슨</option>
-      </select>
-    </label>
-    <label class="tempo-only check"><input id="metronome" type="checkbox"> 메트로놈</label>
-    <label>구간
-      <input id="from" type="number" inputmode="numeric" aria-label="시작 마디">
-      <span class="unit">~</span>
-      <input id="to" type="number" inputmode="numeric" aria-label="끝 마디">
-      <span class="unit">마디</span>
-    </label>
-    <button id="range-all">전체 구간</button>
-    <label class="check"><input id="loop" type="checkbox"> 구간 반복</label>
-    <label>소리
-      <select id="sound-out">
-        <option value="phone">폰 스피커</option>
-        <option value="piano">피아노로 재생</option>
-      </select>
-    </label>
-    <div class="row">
-      <button id="connect">블루투스 직접 연결</button>
-      <button id="connect-all" hidden>모든 기기 보기</button>
-    </div>
-  </section>
-
-  <main id="stage">
-    <div id="sheet"></div>
+  <div id="stage-wrap">
+    <main id="stage">
+      <div id="sheet"></div>
+    </main>
     <div id="loading">악보를 불러오는 중…</div>
-  </main>
+    <div id="message" role="status" hidden></div>
+  </div>
 
   <div id="debug" hidden>
     <button id="debug-right">정답 입력</button>
@@ -96,13 +45,110 @@
     <button id="take-delete">지우기</button>
   </div>
 
-  <footer class="status">
-    <span id="link" class="pill off">연결 안 됨</span>
-    <span id="progress">–</span>
-    <span id="score">–</span>
-    <span id="message"></span>
-    <span id="version">v12</span>
+  <footer class="bottombar">
+    <button id="listen-play" class="play-btn" aria-label="듣기 재생">
+      <svg class="icon solid icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+      <svg class="icon solid icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+    </button>
+    <button id="listen-stop" class="icon-btn" aria-label="듣기 정지">
+      <svg class="icon solid" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+    </button>
+    <button id="record" class="icon-btn" aria-label="녹음">
+      <svg class="icon solid" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/></svg>
+      <span id="record-label"></span>
+    </button>
+    <button id="range-pick" class="chip-btn" aria-label="반복 구간 설정">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"/></svg>
+      <span id="range-label" class="plain">구간</span>
+    </button>
+    <button id="restart" class="chip-btn">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4v6h6M4.5 15a8.5 8.5 0 1 0 2-8.8L3 10"/></svg>
+      <span id="restart-label">처음부터</span>
+    </button>
+    <span class="spacer"></span>
+    <button id="show-result" class="stats" aria-label="결과 보기">
+      <span id="stat-main">–</span>
+      <span id="stat-sub"></span>
+    </button>
+    <button id="settings-toggle" class="icon-btn" aria-label="설정" aria-expanded="false" aria-controls="settings">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+    </button>
   </footer>
+
+  <div id="menu" class="overlay" hidden>
+    <aside class="drawer">
+      <div class="panel-head">
+        <h2>곡과 연결</h2>
+        <button class="icon-btn" data-close="menu" aria-label="닫기"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <label class="field">곡
+        <select id="song">
+          <option value="hanon1">하농 1번</option>
+          <option value="opened" id="song-opened" hidden></option>
+          <option value="open">악보 파일 열기…</option>
+        </select>
+      </label>
+      <input id="file" type="file" accept=".musicxml,.xml,.mxl" hidden>
+      <p class="hint">MusicXML 파일(.musicxml, .xml, .mxl)을 열 수 있습니다.</p>
+      <h3>피아노 연결</h3>
+      <p class="hint">MIDI BLE Connect 앱에서 피아노를 연결한 뒤, 화면 오른쪽 위의 연결 표시를 누르세요. 한 번 허용하면 다음부터는 자동으로 연결됩니다.</p>
+      <div class="row">
+        <button id="connect">블루투스 직접 연결</button>
+        <button id="connect-all" hidden>모든 기기 보기</button>
+      </div>
+      <p id="version" class="hint">v13</p>
+    </aside>
+  </div>
+
+  <div id="settings" class="overlay" hidden>
+    <section class="sheet-panel">
+      <div class="panel-head">
+        <h2>설정</h2>
+        <button class="icon-btn" data-close="settings" aria-label="닫기"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="fields">
+        <label class="field">손
+          <select id="hand">
+            <option value="both">양손</option>
+            <option value="right">오른손</option>
+            <option value="left">왼손</option>
+          </select>
+        </label>
+        <label class="field">빠르기
+          <span class="inline"><input id="bpm" type="number" min="20" max="240" step="1" inputmode="numeric"><span class="unit">BPM</span></span>
+        </label>
+        <label class="field tempo-only">박자 허용
+          <select id="tol">
+            <option value="0.06">엄격</option>
+            <option value="0.1">보통</option>
+            <option value="0.16">느슨</option>
+          </select>
+        </label>
+        <label class="field check tempo-only"><input id="metronome" type="checkbox"> 메트로놈</label>
+        <label class="field">소리
+          <select id="sound-out">
+            <option value="phone">폰 스피커</option>
+            <option value="piano">피아노로 재생</option>
+          </select>
+        </label>
+        <div class="field">악보 크기
+          <span class="inline">
+            <button id="zoom-out" class="icon-btn" aria-label="악보 작게"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+            <button id="zoom-in" class="icon-btn" aria-label="악보 크게"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
+          </span>
+        </div>
+        <div class="field">구간
+          <span class="inline">
+            <input id="from" type="number" inputmode="numeric" aria-label="시작 마디">
+            <span class="unit">~</span>
+            <input id="to" type="number" inputmode="numeric" aria-label="끝 마디">
+            <button id="range-all">전체</button>
+          </span>
+        </div>
+        <label class="field check"><input id="loop" type="checkbox"> 구간 반복</label>
+      </div>
+    </section>
+  </div>
 
   <div id="result" hidden>
     <div class="card">
@@ -118,6 +164,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
-  <script type="module" src="js/app.js?v=12"></script>
+  <script type="module" src="js/app.js?v=13"></script>
 </body>
 </html>

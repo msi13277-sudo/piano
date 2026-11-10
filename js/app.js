@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=12';
+import { buildHanon1 } from './hanon.js?v=13';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=12';
-import * as sound from './sound.js?v=12';
+} from './midi.js?v=13';
+import * as sound from './sound.js?v=13';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -91,10 +91,20 @@ function nowSec() {
   return performance.now() / 1000;
 }
 
+// 안내 문구는 악보 아래쪽에 잠깐 떠 있다가 사라진다.
+let messageTimer = 0;
+
 function setMessage(text, kind = '') {
   const el = $('message');
+  clearTimeout(messageTimer);
   el.textContent = text;
   el.className = kind;
+  el.hidden = !text;
+  if (text) {
+    messageTimer = setTimeout(() => {
+      el.hidden = true;
+    }, kind === 'bad' ? 8000 : 5000);
+  }
 }
 
 function flashWrong() {
@@ -129,7 +139,11 @@ function savePrefs() {
 }
 
 function syncControls() {
-  $('mode').value = state.mode;
+  for (const button of $('mode').querySelectorAll('button')) {
+    const on = button.dataset.mode === state.mode;
+    button.classList.toggle('active', on);
+    button.setAttribute('aria-pressed', String(on));
+  }
   $('bpm').value = state.bpm;
   $('tol').value = String(state.tol);
   $('metronome').checked = state.metronome;
@@ -147,17 +161,33 @@ function syncControls() {
 }
 
 function updateMainButton() {
-  $('restart').textContent =
+  $('restart-label').textContent =
     state.mode === 'tempo' ? (state.running ? '정지' : '시작') : '처음부터';
+  $('restart').classList.toggle('active', state.running);
   // 재생 버튼 하나가 재생 중에는 일시정지 버튼으로 바뀐다.
   const sounding = state.listening && !state.paused;
   $('listen-play').classList.toggle('playing', sounding);
   $('listen-play').classList.toggle('active', state.listening);
   $('listen-play').setAttribute('aria-label', sounding ? '듣기 일시정지' : '듣기 재생');
   $('listen-stop').disabled = !state.listening;
-  $('range-pick').textContent = state.picking ? '취소' : rangeIsPartial() ? '구간 해제' : '구간 설정';
-  $('range-pick').classList.toggle('active', Boolean(state.picking));
-  $('record').textContent = rec.active ? '녹음 중지' : '녹음';
+  // 구간 버튼: 구간이 정해져 있으면 그 범위를 보여주고, 누르면 해제한다.
+  const partial = rangeIsPartial();
+  const rangeLabel = $('range-label');
+  rangeLabel.textContent = state.picking
+    ? '취소'
+    : !partial
+      ? '구간'
+      : state.from === state.to
+        ? `${state.from}마디`
+        : `${state.from}–${state.to}마디`;
+  rangeLabel.classList.toggle('plain', !state.picking && !partial);
+  $('range-pick').classList.toggle('active', Boolean(state.picking) || partial);
+  $('range-pick').setAttribute(
+    'aria-label',
+    state.picking ? '구간 설정 취소' : partial ? '반복 구간 해제' : '반복 구간 설정'
+  );
+  $('record-label').textContent = rec.active ? formatTime(nowSec() - rec.start) : '';
+  $('record').setAttribute('aria-label', rec.active ? '녹음 중지' : '녹음');
   $('record').classList.toggle('recording', rec.active);
   $('take').hidden = !rec.take;
   $('take-play').textContent = state.playing && !state.listening ? '정지' : '재생';
@@ -725,7 +755,7 @@ function startListening(fromMeasure = null) {
       fn: () => {
         moveCursorToIndex(step.cursorIndex);
         if (step.measure != null) {
-          $('progress').textContent = `마디 ${step.measure} / ${state.lastMeasure}`;
+          $('progress').textContent = `${step.measure} / ${state.lastMeasure}마디`;
         }
       },
     });
@@ -866,7 +896,7 @@ function startRecording() {
   rec.events = [];
   setMessage('녹음 중입니다. 연주하세요');
   rec.timer = setInterval(() => {
-    $('record').textContent = `녹음 중지 ${formatTime(nowSec() - rec.start)}`;
+    $('record-label').textContent = formatTime(nowSec() - rec.start);
   }, 500);
   updateMainButton();
 }
@@ -1085,19 +1115,18 @@ function updateStatus() {
   const total = state.steps.length;
   const step = state.steps[Math.min(state.pos, total - 1)];
   $('progress').textContent =
-    step?.measure != null ? `마디 ${step.measure} / ${state.lastMeasure}` : '–';
+    step?.measure != null ? `${step.measure} / ${state.lastMeasure}마디` : '–';
 
+  // 아래쪽 줄의 점수: 큰 숫자는 정확도, 옆은 틀린 내용.
   const s = state.stats;
-  const prefix = state.loop ? `${state.pass}회차 · ` : '';
-  if (state.mode === 'tempo') {
-    $('score').textContent =
-      `${prefix}정확 ${s.ok} · 박자 ${s.timing} · 놓침 ${s.miss} · 틀림 ${s.wrong}`;
-  } else {
-    const done = state.pos;
-    $('score').textContent = done
-      ? `${prefix}정확도 ${accuracy(done)}% · 틀린 횟수 ${s.wrong}`
-      : `${prefix}틀린 횟수 ${s.wrong}`;
-  }
+  const judged = state.mode === 'tempo' ? state.missPtr : state.pos;
+  $('stat-main').textContent = judged ? `${accuracy(judged)}%` : '–';
+  const parts = [];
+  if (state.loop) parts.push(`${state.pass}회차`);
+  if (state.mode === 'tempo') parts.push(`박자 ${s.timing}`, `놓침 ${s.miss}`);
+  parts.push(`틀림 ${s.wrong}`);
+  $('stat-sub').textContent = parts.join(' · ');
+  $('stat-sub').classList.toggle('has-mistakes', s.wrong + s.timing + s.miss > 0);
 }
 
 // ---------- 음표 색칠 ----------
@@ -1167,7 +1196,7 @@ function onMidiMessage(status, d1, d2) {
 function onLinkState({ connected, name, reconnecting }) {
   const el = $('link');
   if (connected) {
-    el.textContent = name ? `연결됨: ${name}` : '연결됨';
+    el.textContent = name || '연결됨';
     el.className = 'pill on';
     keepScreenAwake();
   } else if (reconnecting) {
@@ -1351,16 +1380,30 @@ $('result-again').addEventListener('click', () => {
   }
 });
 
-$('settings-toggle').addEventListener('click', (event) => {
-  const panel = $('settings');
-  panel.hidden = !panel.hidden;
-  event.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
-});
+// 메뉴(왼쪽)와 설정(아래쪽) 패널 열고 닫기. 바깥의 어두운 부분을 눌러도 닫힌다.
+function setPanel(id, open) {
+  $(id).hidden = !open;
+  $(`${id}-toggle`).setAttribute('aria-expanded', String(open));
+}
+
+for (const id of ['menu', 'settings']) {
+  $(`${id}-toggle`).addEventListener('click', () => setPanel(id, $(id).hidden));
+  $(id).addEventListener('click', (event) => {
+    if (event.target === $(id) || event.target.closest('[data-close]')) setPanel(id, false);
+  });
+}
+
+// 위쪽 줄의 곡 이름은 곡 선택 상자에서 지금 고른 곡을 따른다.
+function showTitle() {
+  $('title').textContent = $('song').selectedOptions[0]?.textContent ?? '';
+}
 
 $('hand').addEventListener('change', () => state.loaded && newPractice());
 
-$('mode').addEventListener('change', (event) => {
-  state.mode = event.target.value;
+$('mode').addEventListener('click', (event) => {
+  const mode = event.target.closest('button')?.dataset.mode;
+  if (!mode || mode === state.mode) return;
+  state.mode = mode;
   savePrefs();
   syncControls();
   if (state.loaded) newPractice();
@@ -1442,6 +1485,8 @@ $('song').addEventListener('change', async (event) => {
     if (await loadScore(openedFile.data)) currentSong = 'opened';
   }
   $('song').value = currentSong;
+  showTitle();
+  if (value !== 'open') setPanel('menu', false);
 });
 
 $('file').addEventListener('change', (event) => {
@@ -1457,6 +1502,8 @@ $('file').addEventListener('change', (event) => {
     option.hidden = false;
     currentSong = 'opened';
     $('song').value = 'opened';
+    showTitle();
+    setPanel('menu', false);
   };
   reader.onerror = () => setMessage('파일을 읽지 못했습니다', 'bad');
   if (file.name.toLowerCase().endsWith('.mxl')) {
