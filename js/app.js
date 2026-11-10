@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=9';
+import { buildHanon1 } from './hanon.js?v=10';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=9';
-import * as sound from './sound.js?v=9';
+} from './midi.js?v=10';
+import * as sound from './sound.js?v=10';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -71,10 +71,14 @@ const state = {
   soundOut: 'phone', // 'phone' 또는 'piano'
   playing: false, // 듣기나 녹음 재생이 진행 중
   listening: false, // 그중 악보 듣기
+  paused: false, // 듣기 일시정지
+  picking: null, // 터치로 반복 구간을 고르는 중이면 { first }
 };
 
 // 재생 엔진 상태: 소리 이벤트와 화면 갱신 이벤트를 시간순으로 내보낸다.
-const playback = { timer: 0, start: 0, audio: [], calls: [], ai: 0, ci: 0, end: 0, onEnd: null };
+const playback = {
+  timer: 0, start: 0, audio: [], calls: [], ai: 0, ci: 0, end: 0, onEnd: null, pausedAt: 0,
+};
 
 // 녹음 상태. take는 마지막으로 녹음한 연주.
 const rec = { active: false, start: 0, events: [], take: null, timer: 0 };
@@ -145,7 +149,12 @@ function syncControls() {
 function updateMainButton() {
   $('restart').textContent =
     state.mode === 'tempo' ? (state.running ? '정지' : '시작') : '처음부터';
-  $('listen').textContent = state.listening ? '듣기 정지' : '듣기';
+  $('listen-play').classList.toggle('active', state.listening && !state.paused);
+  $('listen-pause').classList.toggle('active', state.listening && state.paused);
+  $('listen-pause').disabled = !state.listening || state.paused;
+  $('listen-stop').disabled = !state.listening;
+  $('range-pick').textContent = state.picking ? '취소' : rangeIsPartial() ? '구간 해제' : '구간 설정';
+  $('range-pick').classList.toggle('active', Boolean(state.picking));
   $('record').textContent = rec.active ? '녹음 중지' : '녹음';
   $('record').classList.toggle('recording', rec.active);
   $('take').hidden = !rec.take;
@@ -231,18 +240,12 @@ function newPractice() {
   prepareSession();
 }
 
-// 한 회차 준비: 색칠과 점수를 지우고 커서를 구간 처음에 둔다.
-function prepareSession(keepMessage = false) {
-  clearTimeout(state.loopTimer);
-  stopTempo();
-  stopPlayback();
-
-  const wanted = (n) =>
-    state.hand === 'both' || (state.hand === 'right' ? n.staff === 0 : n.staff !== 0);
-  state.hand = $('hand').value;
-
-  state.steps = state.allSteps
-    .filter((s) => s.measure == null || (s.measure >= state.from && s.measure <= state.to))
+// 선택한 손과 마디 범위에 해당하는 연주 지점을 새로 만든다.
+function buildSteps(from, to) {
+  const hand = $('hand').value;
+  const wanted = (n) => hand === 'both' || (hand === 'right' ? n.staff === 0 : n.staff !== 0);
+  return state.allSteps
+    .filter((s) => s.measure == null || (s.measure >= from && s.measure <= to))
     .map((s) => ({
       ...s,
       notes: s.notes.filter(wanted),
@@ -254,6 +257,19 @@ function prepareSession(keepMessage = false) {
       sec: 0,
     }))
     .filter((s) => s.notes.length);
+}
+
+function rangeIsPartial() {
+  return state.from !== state.firstMeasure || state.to !== state.lastMeasure;
+}
+
+// 한 회차 준비: 색칠과 점수를 지우고 커서를 구간 처음에 둔다.
+function prepareSession(keepMessage = false) {
+  clearTimeout(state.loopTimer);
+  stopTempo();
+  stopPlayback();
+
+  state.steps = buildSteps(state.from, state.to);
 
   const base = state.steps[0]?.beats ?? 0;
   for (const s of state.steps) s.sec = ((s.beats - base) * 60) / state.bpm;
@@ -278,21 +294,25 @@ function prepareSession(keepMessage = false) {
   }
   updateStatus();
   updateMainButton();
+  drawRangeOverlay();
 }
 
-function moveCursorToStep(force = false) {
-  const step = state.steps[state.pos];
-  if (!step) return;
+function moveCursorToIndex(cursorIndex, force = false) {
   const cursor = osmd.cursor;
-  if (step.cursorIndex < state.cursorPos) {
+  if (cursorIndex < state.cursorPos) {
     cursor.reset();
     state.cursorPos = 0;
   }
-  while (state.cursorPos < step.cursorIndex) {
+  while (state.cursorPos < cursorIndex) {
     cursor.next();
     state.cursorPos++;
   }
   keepCursorVisible(force);
+}
+
+function moveCursorToStep(force = false) {
+  const step = state.steps[state.pos];
+  if (step) moveCursorToIndex(step.cursorIndex, force);
 }
 
 function keepCursorVisible(force = false) {
@@ -600,16 +620,23 @@ function startPlayback(audioEvents, callEvents, endSec, onEnd) {
   stopPlayback();
   sound.ensureAudio();
   Object.assign(playback, {
-    start: nowSec() + 0.25,
+    start: Infinity, // 피아노 음색이 준비되면 시작 시각을 정한다
     audio: audioEvents,
     calls: callEvents,
     ai: 0,
     ci: 0,
     end: endSec,
     onEnd,
+    pausedAt: -0.25,
   });
   state.playing = true;
+  state.paused = false;
   playback.timer = setInterval(pumpPlayback, 25);
+  const run = playback.audio;
+  sound.whenReady().then(() => {
+    const stillThisRun = state.playing && playback.audio === run && playback.start === Infinity;
+    if (stillThisRun && !state.paused) playback.start = nowSec() + 0.25;
+  });
 }
 
 function pumpPlayback() {
@@ -631,50 +658,185 @@ function pumpPlayback() {
   }
 }
 
+function pausePlayback() {
+  if (!state.playing || state.paused) return;
+  clearInterval(playback.timer);
+  if (playback.start !== Infinity) playback.pausedAt = nowSec() - playback.start;
+  state.paused = true;
+  sound.stopAll();
+  updateMainButton();
+}
+
+function resumePlayback() {
+  if (!state.playing || !state.paused) return;
+  sound.ensureAudio();
+  playback.start = nowSec() - playback.pausedAt;
+  state.paused = false;
+  playback.timer = setInterval(pumpPlayback, 25);
+  updateMainButton();
+}
+
 function stopPlayback(silence = true) {
   if (!state.playing) return;
   clearInterval(playback.timer);
   state.playing = false;
   state.listening = false;
+  state.paused = false;
   if (silence) sound.stopAll();
   updateMainButton();
 }
 
 // ---------- 듣기: 악보를 지금 설정한 빠르기로 들려준다 ----------
 
-function startListening() {
+// fromMeasure를 주면 그 마디부터 들려준다(악보를 터치했을 때).
+function startListening(fromMeasure = null) {
   prepareSession();
-  if (!state.steps.length) return;
+  let steps = state.steps;
+  if (fromMeasure != null) {
+    const inside = fromMeasure >= state.from && fromMeasure <= state.to;
+    steps = buildSteps(fromMeasure, inside ? state.to : state.lastMeasure);
+  }
+  if (!steps.length) return;
+
   const perBeat = 60 / state.bpm;
+  const base = steps[0].beats;
   const audio = [];
   const calls = [];
-  state.steps.forEach((step, index) => {
+  for (const step of steps) {
+    const at = (step.beats - base) * perBeat;
     for (const n of step.notes) {
-      audio.push({
-        t: step.sec,
-        midi: n.midi,
-        vel: 80,
-        dur: Math.max(0.08, n.len * perBeat * 0.95),
-      });
+      audio.push({ t: at, midi: n.midi, vel: 80, dur: Math.max(0.08, n.len * perBeat * 0.95) });
     }
     calls.push({
-      t: step.sec,
+      t: at,
       fn: () => {
-        state.pos = index;
-        moveCursorToStep();
-        updateStatus();
+        moveCursorToIndex(step.cursorIndex);
+        if (step.measure != null) {
+          $('progress').textContent = `마디 ${step.measure} / ${state.lastMeasure}`;
+        }
       },
     });
-  });
-  const last = state.steps.at(-1);
-  const end = last.sec + Math.max(...last.notes.map((n) => n.len)) * perBeat + 0.3;
+  }
+  const last = steps.at(-1);
+  const end =
+    (last.beats - base) * perBeat + Math.max(...last.notes.map((n) => n.len)) * perBeat + 0.3;
   startPlayback(audio, calls, end, () => {
     prepareSession();
     setMessage('듣기가 끝났습니다');
   });
   state.listening = true;
-  setMessage('악보를 들려주는 중입니다');
+  moveCursorToIndex(steps[0].cursorIndex, true);
+  setMessage(
+    fromMeasure != null ? `${fromMeasure}마디부터 들려주는 중입니다` : '악보를 들려주는 중입니다'
+  );
   updateMainButton();
+}
+
+// ---------- 악보 터치: 누른 자리가 몇 마디인지 찾는다 ----------
+
+// 각 마디가 악보에서 차지하는 영역(악보 내부 단위).
+function measureBoxes() {
+  const boxes = [];
+  for (const source of osmd.Sheet?.SourceMeasures ?? []) {
+    const list = source.VerticalMeasureList ?? source.verticalMeasureList ?? [];
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const graphical of list) {
+      const shape = graphical?.PositionAndShape;
+      if (!shape) continue;
+      left = Math.min(left, shape.AbsolutePosition.x);
+      right = Math.max(right, shape.AbsolutePosition.x + shape.Size.width);
+      top = Math.min(top, shape.AbsolutePosition.y);
+      bottom = Math.max(bottom, shape.AbsolutePosition.y + shape.Size.height);
+    }
+    if (left < right) boxes.push({ number: source.MeasureNumber, left, right, top, bottom });
+  }
+  return boxes;
+}
+
+function measureAt(clientX, clientY) {
+  const svg = sheet.querySelector('svg');
+  if (!svg) return null;
+  const frame = svg.getBoundingClientRect();
+  const unit = 10 * state.zoom; // 악보 내부 단위 하나의 화면 크기(px)
+  const x = (clientX - frame.left) / unit;
+  const y = (clientY - frame.top) / unit;
+  let best = null;
+  let bestGap = Infinity;
+  for (const box of measureBoxes()) {
+    if (x < box.left || x > box.right) continue;
+    const gap = y < box.top ? box.top - y : y > box.bottom ? y - box.bottom : 0;
+    if (gap < bestGap) {
+      best = box;
+      bestGap = gap;
+    }
+  }
+  return best && bestGap < 6 ? best.number : null;
+}
+
+// 반복 구간(또는 고르는 중인 첫 마디)을 악보 위에 옅은 색으로 표시한다.
+function drawRangeOverlay() {
+  let layer = $('range-overlay');
+  if (!layer || layer.parentElement !== sheet) {
+    layer?.remove();
+    layer = document.createElement('div');
+    layer.id = 'range-overlay';
+    sheet.append(layer);
+  }
+  layer.replaceChildren();
+  const svg = sheet.querySelector('svg');
+  if (!svg || !state.loaded) return;
+
+  let from = null;
+  let to = null;
+  if (state.picking?.first != null) from = to = state.picking.first;
+  else if (rangeIsPartial()) [from, to] = [state.from, state.to];
+  if (from == null) return;
+
+  const unit = 10 * state.zoom;
+  // SVG에는 offsetLeft가 없어서 화면 좌표의 차이로 위치를 구한다.
+  const frame = svg.getBoundingClientRect();
+  const origin = sheet.getBoundingClientRect();
+  const offsetX = frame.left - origin.left;
+  const offsetY = frame.top - origin.top;
+  for (const box of measureBoxes()) {
+    if (box.number < from || box.number > to) continue;
+    const mark = document.createElement('div');
+    mark.className = 'range-box';
+    mark.style.left = `${offsetX + box.left * unit}px`;
+    mark.style.top = `${offsetY + (box.top - 1.5) * unit}px`;
+    mark.style.width = `${(box.right - box.left) * unit}px`;
+    mark.style.height = `${(box.bottom - box.top + 3) * unit}px`;
+    layer.append(mark);
+  }
+}
+
+function setRange(from, to, loop) {
+  state.from = Math.min(from, to);
+  state.to = Math.max(from, to);
+  state.loop = loop;
+  state.picking = null;
+  syncControls();
+  newPractice();
+}
+
+function pickMeasure(measure) {
+  if (state.picking.first == null) {
+    state.picking.first = measure;
+    setMessage(`${measure}마디부터 반복합니다. 이제 마지막 마디를 누르세요`);
+    drawRangeOverlay();
+    return;
+  }
+  const first = state.picking.first;
+  setRange(first, measure, true);
+  setMessage(
+    state.from === state.to
+      ? `${state.from}마디를 반복합니다`
+      : `${state.from}~${state.to}마디를 반복합니다`,
+    'good'
+  );
 }
 
 // ---------- 녹음: 피아노에서 들어온 연주(건반, 세기, 페달)를 기록한다 ----------
@@ -879,27 +1041,31 @@ function showResult(final) {
 
   const box = $('result-measures');
   box.replaceChildren();
+  // 틀린 마디가 이어져 있으면 하나의 구간으로 묶는다(예: 5, 6, 7마디 → 5–7마디).
   const measures = [...state.perMeasure.entries()].sort((a, b) => a[0] - b[0]);
+  const groups = [];
   for (const [measure, count] of measures) {
+    const last = groups.at(-1);
+    if (last && measure === last.to + 1) {
+      last.to = measure;
+      last.count += count;
+    } else {
+      groups.push({ from: measure, to: measure, count });
+    }
+  }
+  for (const group of groups) {
     const chip = document.createElement('button');
-    chip.textContent = `${measure}마디 · ${count}번`;
-    chip.addEventListener('click', () => practiceMeasure(measure));
+    const name = group.from === group.to ? `${group.from}마디` : `${group.from}–${group.to}마디`;
+    chip.textContent = `${name} · ${group.count}번`;
+    chip.addEventListener('click', () => setRange(group.from, group.to, true));
     box.append(chip);
   }
-  $('result-hint').textContent = measures.length
-    ? '틀린 마디입니다. 누르면 그 마디만 반복 연습합니다.' +
+  $('result-hint').textContent = groups.length
+    ? '틀린 구간입니다. 누르면 그 구간만 반복 연습합니다.' +
       (state.pass > 1 ? ' (반복한 회차 전체 합계)' : '')
     : '';
 
   $('result').hidden = false;
-}
-
-function practiceMeasure(measure) {
-  state.from = measure;
-  state.to = measure;
-  state.loop = true;
-  syncControls();
-  newPractice();
 }
 
 function updateStatus() {
@@ -970,6 +1136,7 @@ function rerenderKeepingProgress() {
     osmd.cursor.show();
     moveCursorToStep();
   }
+  drawRangeOverlay();
 }
 
 // ---------- 피아노 연결 ----------
@@ -1082,13 +1249,56 @@ $('restart').addEventListener('click', () => {
   }
 });
 
-$('listen').addEventListener('click', () => {
+$('listen-play').addEventListener('click', () => {
   if (!state.loaded) return;
-  if (state.listening) {
-    prepareSession();
-    setMessage('듣기를 멈췄습니다');
-  } else {
+  if (state.listening && state.paused) {
+    resumePlayback();
+    setMessage('이어서 들려주는 중입니다');
+  } else if (!state.listening) {
     startListening();
+  }
+});
+
+$('listen-pause').addEventListener('click', () => {
+  if (!state.listening) return;
+  pausePlayback();
+  setMessage('일시정지했습니다. 재생 버튼을 누르면 이어집니다');
+});
+
+$('listen-stop').addEventListener('click', () => {
+  if (!state.listening) return;
+  prepareSession();
+  setMessage('듣기를 멈췄습니다');
+});
+
+// 악보를 누르면: 구간을 고르는 중이면 그 마디를 구간으로, 아니면 그 마디부터 들려준다.
+sheet.addEventListener('click', (event) => {
+  if (!state.loaded) return;
+  const measure = measureAt(event.clientX, event.clientY);
+  if (measure == null) return;
+  if (state.picking) {
+    pickMeasure(measure);
+    return;
+  }
+  if (state.running || rec.active) return; // 템포 연습이나 녹음 중에는 방해하지 않는다
+  startListening(measure);
+});
+
+$('range-pick').addEventListener('click', () => {
+  if (!state.loaded) return;
+  if (state.picking) {
+    state.picking = null;
+    setMessage('구간 설정을 취소했습니다');
+    updateMainButton();
+    drawRangeOverlay();
+  } else if (rangeIsPartial()) {
+    setRange(state.firstMeasure, state.lastMeasure, false);
+    setMessage('구간을 해제했습니다. 전체를 연습합니다');
+  } else {
+    prepareSession();
+    state.picking = { first: null };
+    setMessage('반복할 첫 마디를 악보에서 누르세요');
+    updateMainButton();
   }
 });
 
@@ -1251,10 +1461,12 @@ if (new URLSearchParams(location.search).has('debug')) {
   $('debug-right').addEventListener('click', () => debugPlay(true));
   $('debug-wrong').addEventListener('click', () => debugPlay(false));
   window.pianoDebug = {
-    state, rec, handleNoteOn, onMidiMessage, debugPlay, startTempo, nowSec, takeToNotes, takeToMidiFile,
+    state, rec, sound, handleNoteOn, onMidiMessage, debugPlay, startTempo, nowSec, takeToNotes,
+    takeToMidiFile, measureBoxes,
   };
 }
 
 loadPrefs();
 syncControls();
 loadScore(buildHanon1()).then(autoConnectMidi);
+setTimeout(() => sound.preloadSamples(), 1500);
