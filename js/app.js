@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=10';
+import { buildHanon1 } from './hanon.js?v=11';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=10';
-import * as sound from './sound.js?v=10';
+} from './midi.js?v=11';
+import * as sound from './sound.js?v=11';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -149,9 +149,11 @@ function syncControls() {
 function updateMainButton() {
   $('restart').textContent =
     state.mode === 'tempo' ? (state.running ? '정지' : '시작') : '처음부터';
-  $('listen-play').classList.toggle('active', state.listening && !state.paused);
-  $('listen-pause').classList.toggle('active', state.listening && state.paused);
-  $('listen-pause').disabled = !state.listening || state.paused;
+  // 재생 버튼 하나가 재생 중에는 일시정지 버튼으로 바뀐다.
+  const sounding = state.listening && !state.paused;
+  $('listen-play').classList.toggle('playing', sounding);
+  $('listen-play').classList.toggle('active', state.listening);
+  $('listen-play').setAttribute('aria-label', sounding ? '듣기 일시정지' : '듣기 재생');
   $('listen-stop').disabled = !state.listening;
   $('range-pick').textContent = state.picking ? '취소' : rangeIsPartial() ? '구간 해제' : '구간 설정';
   $('range-pick').classList.toggle('active', Boolean(state.picking));
@@ -1251,18 +1253,15 @@ $('restart').addEventListener('click', () => {
 
 $('listen-play').addEventListener('click', () => {
   if (!state.loaded) return;
-  if (state.listening && state.paused) {
+  if (!state.listening) {
+    startListening();
+  } else if (state.paused) {
     resumePlayback();
     setMessage('이어서 들려주는 중입니다');
-  } else if (!state.listening) {
-    startListening();
+  } else {
+    pausePlayback();
+    setMessage('일시정지했습니다. 재생 버튼을 누르면 이어집니다');
   }
-});
-
-$('listen-pause').addEventListener('click', () => {
-  if (!state.listening) return;
-  pausePlayback();
-  setMessage('일시정지했습니다. 재생 버튼을 누르면 이어집니다');
 });
 
 $('listen-stop').addEventListener('click', () => {

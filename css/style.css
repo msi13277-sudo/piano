@@ -256,3 +256,7 @@ button.active { border-color: var(--accent); color: #93c5fd; }
   border-top: 2px solid rgba(59, 130, 246, 0.55);
   border-bottom: 2px solid rgba(59, 130, 246, 0.55);
 }
+
+#listen-play .icon-pause { display: none; }
+#listen-play.playing .icon-play { display: none; }
+#listen-play.playing .icon-pause { display: block; }

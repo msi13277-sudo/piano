@@ -5,15 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#14161a">
   <title>피아노 연습</title>
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body>
   <header class="toolbar">
     <button id="connect-usb" class="primary">피아노 연결</button>
     <button id="restart">처음부터</button>
     <span class="transport" role="group" aria-label="악보 듣기">
-      <button id="listen-play" aria-label="듣기 재생" title="듣기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg></button>
-      <button id="listen-pause" aria-label="듣기 일시정지" title="일시정지"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z"/></svg></button>
+      <button id="listen-play" aria-label="듣기 재생"><svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg><svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z"/></svg></button>
       <button id="listen-stop" aria-label="듣기 정지" title="정지"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 5.5h13v13h-13z"/></svg></button>
     </span>
     <button id="record">녹음</button>
@@ -42,9 +41,9 @@
     </label>
     <label>모드
       <select id="mode">
-        <option value="wait">연습 (틀리면 맞게 칠 때까지 기다림)</option>
-        <option value="perform">연주 (틀려도 표시만 하고 진행)</option>
-        <option value="tempo">템포 (메트로놈에 맞춰 박자까지 판정)</option>
+        <option value="wait">연습모드</option>
+        <option value="perform">연주모드</option>
+        <option value="tempo">템포모드</option>
       </select>
     </label>
     <label>빠르기
@@ -101,7 +100,7 @@
     <span id="progress">–</span>
     <span id="score">–</span>
     <span id="message"></span>
-    <span id="version">v10</span>
+    <span id="version">v11</span>
   </footer>
 
   <div id="result" hidden>
@@ -118,6 +117,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
-  <script type="module" src="js/app.js?v=10"></script>
+  <script type="module" src="js/app.js?v=11"></script>
 </body>
 </html>
