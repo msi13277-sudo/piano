@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14161a">
+  <title>피아노 연습</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="group">
+      <button id="connect" class="primary">피아노 연결</button>
+      <button id="connect-usb" title="USB 케이블로 연결한 경우">USB MIDI</button>
+    </div>
+    <div class="group">
+      <select id="song" aria-label="곡 선택">
+        <option value="hanon1">하농 1번</option>
+        <option value="file">악보 파일 열기…</option>
+      </select>
+      <input id="file" type="file" accept=".musicxml,.xml,.mxl" hidden>
+      <select id="hand" aria-label="연습할 손">
+        <option value="both">양손</option>
+        <option value="right">오른손</option>
+        <option value="left">왼손</option>
+      </select>
+    </div>
+    <div class="group">
+      <button id="restart">처음부터</button>
+      <button id="zoom-out" aria-label="악보 작게">−</button>
+      <button id="zoom-in" aria-label="악보 크게">+</button>
+    </div>
+  </header>
+
+  <main id="stage">
+    <div id="sheet"></div>
+    <div id="loading">악보를 불러오는 중…</div>
+  </main>
+
+  <div id="debug" hidden>
+    <button id="debug-right">정답 입력</button>
+    <button id="debug-wrong">틀린 음 입력</button>
+  </div>
+
+  <footer class="status">
+    <span id="link" class="pill off">연결 안 됨</span>
+    <span id="progress">–</span>
+    <span id="score">–</span>
+    <span id="message"></span>
+  </footer>
+
+  <div id="result" hidden>
+    <div class="card">
+      <h2 id="result-title"></h2>
+      <p id="result-body"></p>
+      <button id="result-again" class="primary">다시 연습</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
