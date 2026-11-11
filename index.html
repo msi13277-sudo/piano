@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1b1d22" media="(prefers-color-scheme: dark)">
   <title>피아노 연습</title>
-  <link rel="stylesheet" href="css/style.css?v=13">
+  <link rel="stylesheet" href="css/style.css?v=14">
 </head>
 <body>
   <header class="topbar">
@@ -30,6 +30,7 @@
       <div id="sheet"></div>
     </main>
     <div id="loading">악보를 불러오는 중…</div>
+    <div id="combo" hidden></div>
     <div id="message" role="status" hidden></div>
   </div>
 
@@ -96,7 +97,7 @@
         <button id="connect">블루투스 직접 연결</button>
         <button id="connect-all" hidden>모든 기기 보기</button>
       </div>
-      <p id="version" class="hint">v13</p>
+      <p id="version" class="hint">v14</p>
     </aside>
   </div>
 
@@ -154,6 +155,15 @@
     <div class="card">
       <h2 id="result-title"></h2>
       <p id="result-body"></p>
+      <div id="result-compare" hidden>
+        <div id="compare-nums">
+          <span class="compare-label">틀린 횟수</span>
+          <span id="compare-prev"></span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          <span id="compare-now"></span>
+        </div>
+        <div id="compare-text"></div>
+      </div>
       <p id="result-hint" class="hint"></p>
       <div id="result-measures"></div>
       <div class="row center">
@@ -164,6 +174,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
-  <script type="module" src="js/app.js?v=13"></script>
+  <script type="module" src="js/app.js?v=14"></script>
 </body>
 </html>

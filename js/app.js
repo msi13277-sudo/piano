@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=13';
+import { buildHanon1 } from './hanon.js?v=14';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=13';
-import * as sound from './sound.js?v=13';
+} from './midi.js?v=14';
+import * as sound from './sound.js?v=14';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -71,6 +71,8 @@ const state = {
   soundOut: 'phone', // 'phone' 또는 'piano'
   playing: false, // 듣기나 녹음 재생이 진행 중
   listening: false, // 그중 악보 듣기
+  combo: 0, // 한 번에 맞힌 자리가 이어진 개수
+  compare: null, // 방금 끝낸 회차와 지난 기록의 비교
   paused: false, // 듣기 일시정지
   picking: null, // 터치로 반복 구간을 고르는 중이면 { first }
 };
@@ -323,6 +325,7 @@ function prepareSession(keepMessage = false) {
   state.finished = false;
   state.missPtr = 0;
   state.prevWrong = [];
+  setCombo(0);
   state.stats = { ok: 0, wrong: 0, timing: 0, miss: 0 };
   $('result').hidden = true;
 
@@ -438,6 +441,7 @@ function performNoteOn(midi) {
       if (n.midi === midi) paint(n.note, COLOR_FIXED);
     }
     setMessage('고쳐 쳤습니다');
+    celebrateFix(previous.notes.filter((n) => n.midi === midi));
     return;
   }
 
@@ -464,10 +468,12 @@ function completePerformStep(step, expected) {
       else if (allHit) paint(n.note, COLOR_FIXED); // 음은 다 쳤지만 다른 건반도 함께 눌렀다
     }
     state.prevWrong = step.wrongNotes;
+    setCombo(0);
   } else {
     step.result = 'ok';
     state.stats.ok++;
     state.prevWrong = [];
+    setCombo(state.combo + 1);
   }
 
   state.pos++;
@@ -486,6 +492,7 @@ function waitNoteOn(midi) {
 
   if (!expected.has(midi)) {
     state.stepMistake = true;
+    setCombo(0);
     state.stats.wrong++;
     bumpMeasure(step.measure);
     for (const n of step.notes) {
@@ -508,8 +515,13 @@ function waitNoteOn(midi) {
 
   // 이 지점의 음을 모두 맞혔다.
   step.result = state.stepMistake ? 'fixed' : 'ok';
-  if (!state.stepMistake) state.stats.ok++;
-  if (state.stepMistake) setMessage('');
+  if (state.stepMistake) {
+    setMessage('');
+    celebrateFix(step.notes); // 틀렸던 자리를 맞게 고쳐 쳤다
+  } else {
+    state.stats.ok++;
+    setCombo(state.combo + 1);
+  }
   state.pos++;
   state.hit = new Set();
   state.stepMistake = false;
@@ -1037,10 +1049,15 @@ function finishPass() {
   stopTempo();
   state.finished = true;
   const total = state.steps.length;
+  const compare = saveResult(total);
+  state.compare = compare;
+  const improved = compare.previous && compare.now.mistakes < compare.previous.mistakes;
 
   if (state.loop) {
-    const text = isPerfect() ? '퍼펙트!' : `정확도 ${accuracy(total)}%`;
+    let text = isPerfect() ? '퍼펙트!' : `틀림 ${compare.now.mistakes}`;
+    if (improved) text += ` (지난번 ${compare.previous.mistakes}에서 줄었습니다)`;
     setMessage(`${state.pass}회차 ${text} · 다시 시작합니다`, 'good');
+    if (isPerfect() || improved) confetti();
     state.pass++;
     state.loopTimer = setTimeout(() => {
       if (state.mode === 'tempo') startTempo(true);
@@ -1052,6 +1069,132 @@ function finishPass() {
   osmd.cursor.hide();
   setMessage(isPerfect() ? '퍼펙트!' : '완주', 'good');
   showResult(true);
+  if (isPerfect() || improved) confetti();
+}
+
+// ---------- 기록: 같은 곡, 같은 구간, 같은 손, 같은 모드의 지난 결과와 비교한다 ----------
+
+function mistakeCount() {
+  const s = state.stats;
+  return s.wrong + s.timing + s.miss;
+}
+
+function saveResult(total) {
+  const now = { mistakes: mistakeCount(), accuracy: accuracy(total), at: Date.now() };
+  const key = [$('title').textContent, state.from, state.to, $('hand').value, state.mode].join('|');
+  let all = {};
+  try {
+    all = JSON.parse(localStorage.getItem('piano-history') || '{}');
+  } catch {
+    all = {};
+  }
+  const entry = all[key] ?? {};
+  const previous = entry.last ?? null;
+  const best = entry.best ?? null;
+  const newBest = Boolean(best) && now.mistakes < best.mistakes;
+  all[key] = { last: now, best: !best || now.mistakes < best.mistakes ? now : best };
+  try {
+    localStorage.setItem('piano-history', JSON.stringify(all));
+  } catch {
+    // 저장이 안 되면 다음 비교만 빠진다
+  }
+  return { now, previous, best, newBest };
+}
+
+function showCompare(final) {
+  const box = $('result-compare');
+  const compare = state.compare;
+  if (!final || !compare) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const { now, previous, newBest } = compare;
+  const text = $('compare-text');
+  $('compare-nums').hidden = !previous;
+  if (!previous) {
+    text.textContent = '첫 기록입니다. 다음부터는 이 기록과 비교합니다.';
+    text.className = '';
+    return;
+  }
+  $('compare-prev').textContent = previous.mistakes;
+  $('compare-now').textContent = now.mistakes;
+  const diff = previous.mistakes - now.mistakes;
+  if (diff > 0) {
+    text.textContent =
+      `지난번보다 ${diff}개 줄었습니다` + (newBest ? ' · 최고 기록입니다' : '');
+    text.className = 'good';
+  } else if (diff === 0) {
+    text.textContent = now.mistakes === 0 ? '이번에도 퍼펙트입니다' : '지난번과 같습니다';
+    text.className = now.mistakes === 0 ? 'good' : '';
+  } else {
+    text.textContent = `지난번보다 ${-diff}개 많았습니다. 한 번 더 해보세요`;
+    text.className = '';
+  }
+  $('compare-now').className = diff > 0 ? 'good' : '';
+}
+
+// ---------- 효과: 고쳐 쳤을 때의 반짝임, 연속 성공 표시, 색종이 ----------
+
+const calmMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+function burstAt(x, y) {
+  if (calmMotion) return;
+  const burst = document.createElement('div');
+  burst.className = 'burst';
+  burst.style.left = `${x}px`;
+  burst.style.top = `${y}px`;
+  for (let i = 0; i < 8; i++) {
+    const dot = document.createElement('i');
+    dot.style.setProperty('--a', `${i * 45}deg`);
+    burst.append(dot);
+  }
+  sheet.append(burst);
+  setTimeout(() => burst.remove(), 700);
+}
+
+function celebrateFix(notes) {
+  const origin = sheet.getBoundingClientRect();
+  for (const n of notes) {
+    const head = noteHeads(n.note)[0];
+    if (!head) continue;
+    const box = head.getBoundingClientRect();
+    burstAt(box.left + box.width / 2 - origin.left, box.top + box.height / 2 - origin.top);
+  }
+}
+
+const COMBO_MILESTONES = [10, 25, 50, 100, 200, 300, 500];
+
+// 틀리지 않고 한 번에 맞힌 자리가 이어진 개수. 5개부터 화면에 보인다.
+function setCombo(value) {
+  state.combo = value;
+  const badge = $('combo');
+  badge.hidden = value < 5;
+  if (value < 5) return;
+  badge.textContent = `${value} 연속`;
+  const milestone = COMBO_MILESTONES.includes(value);
+  badge.classList.remove('pop', 'big');
+  void badge.offsetWidth; // 애니메이션 다시 시작
+  badge.classList.add(milestone ? 'big' : 'pop');
+  if (milestone) setMessage(`${value}개 연속으로 맞혔습니다`, 'good');
+}
+
+function confetti() {
+  if (calmMotion) return;
+  const colors = ['#16a34a', '#2563eb', '#d97706', '#db2777', '#7c3aed'];
+  const layer = document.createElement('div');
+  layer.className = 'confetti';
+  for (let i = 0; i < 44; i++) {
+    const piece = document.createElement('i');
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.background = colors[i % colors.length];
+    piece.style.animationDelay = `${Math.random() * 0.5}s`;
+    piece.style.animationDuration = `${1.4 + Math.random() * 1.1}s`;
+    piece.style.setProperty('--drift', `${Math.random() * 120 - 60}px`);
+    layer.append(piece);
+  }
+  document.body.append(layer);
+  setTimeout(() => layer.remove(), 3200);
 }
 
 function showResult(final) {
@@ -1108,6 +1251,7 @@ function showResult(final) {
       (state.pass > 1 ? ' (반복한 회차 전체 합계)' : '')
     : '';
 
+  showCompare(final);
   $('result').hidden = false;
 }
 
@@ -1131,9 +1275,10 @@ function updateStatus() {
 
 // ---------- 음표 색칠 ----------
 
-function colorNote(note, color) {
+// 악보 그림에서 그 음표의 머리 부분을 찾는다.
+function noteHeads(note) {
   const graphical = osmd.rules.GNote(note);
-  if (!graphical) return;
+  if (!graphical) return [];
   let heads = [];
   try {
     heads = graphical.getNoteheadSVGs?.() ?? [];
@@ -1142,11 +1287,15 @@ function colorNote(note, color) {
   }
   if (!heads.length) {
     const group = graphical.getSVGGElement?.();
-    if (!group) return;
+    if (!group) return [];
     heads = [...group.querySelectorAll('.vf-notehead')];
     if (!heads.length) heads = [group];
   }
-  for (const head of heads) {
+  return heads;
+}
+
+function colorNote(note, color) {
+  for (const head of noteHeads(note)) {
     for (const path of head.querySelectorAll('path')) {
       path.setAttribute('fill', color);
       path.setAttribute('stroke', color);

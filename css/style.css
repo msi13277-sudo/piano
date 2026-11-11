@@ -357,3 +357,99 @@ button.active { background: var(--accent-soft); border-color: transparent; color
   .play-btn { width: 40px; height: 40px; }
   #progress { display: none; }
 }
+
+/* ---------- 효과: 고쳐 침, 연속 성공, 기록 비교, 색종이 ---------- */
+
+.burst { position: absolute; width: 0; height: 0; pointer-events: none; z-index: 5; }
+.burst::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: -14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--ok);
+  animation: burst-ring 0.6s ease-out forwards;
+}
+.burst i {
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fixed);
+  animation: burst-dot 0.6s ease-out forwards;
+}
+.burst i:nth-child(even) { background: var(--ok); }
+@keyframes burst-ring {
+  from { transform: scale(0.3); opacity: 1; }
+  to { transform: scale(2.4); opacity: 0; }
+}
+@keyframes burst-dot {
+  from { transform: rotate(var(--a)) translateY(-6px); opacity: 1; }
+  to { transform: rotate(var(--a)) translateY(-38px) scale(0.3); opacity: 0; }
+}
+
+#combo {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--ok);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+#combo.pop { animation: combo-pop 0.25s ease-out; }
+#combo.big { animation: combo-big 0.6s ease-out; }
+@keyframes combo-pop {
+  from { transform: scale(1.18); }
+  to { transform: scale(1); }
+}
+@keyframes combo-big {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.7); }
+  100% { transform: scale(1); }
+}
+
+#result-compare {
+  margin: 0 0 14px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel-2);
+}
+#compare-nums {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.compare-label { font-size: 13px; font-weight: 400; color: var(--muted); }
+#compare-prev { color: var(--muted); }
+#compare-now.good { color: var(--ok); }
+#compare-nums .icon { color: var(--muted); }
+#compare-text { margin-top: 4px; font-size: 14px; color: var(--muted); }
+#compare-text.good { color: var(--ok); font-weight: 600; }
+
+.confetti { position: fixed; inset: 0; z-index: 40; overflow: hidden; pointer-events: none; }
+.confetti i {
+  position: absolute;
+  top: -14px;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  animation-name: confetti-fall;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+}
+@keyframes confetti-fall {
+  to { transform: translate(var(--drift), 105vh) rotate(720deg); opacity: 0.9; }
+}
