@@ -192,13 +192,32 @@ export function getMidiOutputs() {
   return midiOutputs;
 }
 
+// 연결을 요청할 때마다 브라우저가 같은 피아노에 대한 입력 통로를 새로 만들어 주기 때문에,
+// 여러 번 요청하면 건반 신호가 그 횟수만큼 겹쳐서 들어온다. 그래서 한 번만 요청하고 재사용한다.
+let midiAccessPromise = null;
+
 export async function connectWebMidi(onMessage, onState) {
-  const access = await navigator.requestMIDIAccess();
+  midiAccessPromise ??= navigator.requestMIDIAccess();
+  let access;
+  try {
+    access = await midiAccessPromise;
+  } catch (error) {
+    midiAccessPromise = null; // 거부되거나 실패하면 다음에 다시 요청할 수 있게 한다
+    throw error;
+  }
 
   const refresh = () => {
     midiOutputs = [...access.outputs.values()];
     const names = [];
+    const seen = new Set();
     for (const input of access.inputs.values()) {
+      // 같은 피아노가 두 개의 통로로 잡히면 하나만 듣는다.
+      const identity = `${input.manufacturer}|${input.name}`;
+      if (seen.has(identity)) {
+        input.onmidimessage = null;
+        continue;
+      }
+      seen.add(identity);
       input.onmidimessage = (event) => {
         const [status, d1 = 0, d2 = 0] = event.data;
         if (status < 0xf0) onMessage(status, d1, d2);

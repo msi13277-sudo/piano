@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=14';
+import { buildHanon1 } from './hanon.js?v=15';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=14';
-import * as sound from './sound.js?v=14';
+} from './midi.js?v=15';
+import * as sound from './sound.js?v=15';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -1332,7 +1332,20 @@ function rerenderKeepingProgress() {
 
 // ---------- 피아노 연결 ----------
 
+// 똑같은 신호가 아주 짧은 간격(0.02초 안)으로 다시 오면 겹쳐 들어온 것으로 보고 버린다.
+// 사람이 같은 건반을 이렇게 빨리 다시 누를 수는 없다.
+const lastMessageAt = new Map();
+
+function isEcho(status, d1, d2) {
+  const key = (status << 16) | (d1 << 8) | d2;
+  const now = performance.now();
+  const previous = lastMessageAt.get(key);
+  lastMessageAt.set(key, now);
+  return previous !== undefined && now - previous < 20;
+}
+
 function onMidiMessage(status, d1, d2) {
+  if (isEcho(status, d1, d2)) return;
   const command = status & 0xf0;
   const isNote = command === 0x90 || command === 0x80;
   const isPedal = command === 0xb0 && d1 === 64;

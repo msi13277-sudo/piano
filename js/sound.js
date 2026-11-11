@@ -1,5 +1,5 @@
 // 소리 내기: 폰 스피커(녹음된 피아노 음색) 또는 연결된 피아노(MIDI 출력).
-import { getMidiOutputs } from './midi.js?v=14';
+import { getMidiOutputs } from './midi.js?v=15';
 
 // 피아노 음색: Salamander Grand Piano (Alexander Holm, CC BY 3.0).
 // 단3도 간격으로 녹음된 30개 음을 받아 두고, 사이 음은 가장 가까운 음의 속도를 바꿔서 낸다.
