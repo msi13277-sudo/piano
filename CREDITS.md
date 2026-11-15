@@ -4,3 +4,5 @@
   licensed under CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/).
   Files obtained from the Tone.js audio collection (https://tonejs.github.io/audio/salamander/).
 - Sheet music rendering: OpenSheetMusicDisplay (BSD-3-Clause).
+- `scores/debussy-clair-de-lune.mxl`: Debussy, Clair de lune, from the MuseTrainer
+  public domain MusicXML library (https://github.com/musetrainer/library).

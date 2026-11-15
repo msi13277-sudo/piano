@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1b1d22" media="(prefers-color-scheme: dark)">
   <title>피아노 연습</title>
-  <link rel="stylesheet" href="css/style.css?v=15">
+  <link rel="stylesheet" href="css/style.css?v=16">
 </head>
 <body>
   <header class="topbar">
@@ -85,6 +85,7 @@
       <label class="field">곡
         <select id="song">
           <option value="hanon1">하농 1번</option>
+          <option value="clair" data-src="scores/debussy-clair-de-lune.mxl">드뷔시 - 달빛</option>
           <option value="opened" id="song-opened" hidden></option>
           <option value="open">악보 파일 열기…</option>
         </select>
@@ -97,7 +98,7 @@
         <button id="connect">블루투스 직접 연결</button>
         <button id="connect-all" hidden>모든 기기 보기</button>
       </div>
-      <p id="version" class="hint">v15</p>
+      <p id="version" class="hint">v16</p>
     </aside>
   </div>
 
@@ -174,6 +175,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
-  <script type="module" src="js/app.js?v=15"></script>
+  <script type="module" src="js/app.js?v=16"></script>
 </body>
 </html>

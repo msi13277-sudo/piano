@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=15';
+import { buildHanon1 } from './hanon.js?v=16';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=15';
-import * as sound from './sound.js?v=15';
+} from './midi.js?v=16';
+import * as sound from './sound.js?v=16';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -1632,6 +1632,25 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(rerenderKeepingProgress, 250);
 });
 
+// 압축된 악보(.mxl)는 파일을 열 때와 같은 형태(바이트를 한 글자씩 담은 문자열)로 넘긴다.
+async function fetchScore(src) {
+  $('loading').hidden = false;
+  try {
+    const response = await fetch(src);
+    if (!response.ok) throw new Error(response.status);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let text = '';
+    for (let i = 0; i < bytes.length; i += 8192) {
+      text += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    }
+    return src.toLowerCase().endsWith('.mxl') ? text : new TextDecoder().decode(bytes);
+  } catch {
+    setMessage('곡을 받아오지 못했습니다. 인터넷 연결을 확인해 주세요', 'bad');
+    $('loading').hidden = true;
+    return null;
+  }
+}
+
 // 곡 선택 상자는 항상 지금 화면에 있는 곡 이름을 보여준다.
 let currentSong = 'hanon1';
 let openedFile = null; // 마지막으로 연 악보 파일 { name, data }
@@ -1645,6 +1664,11 @@ $('song').addEventListener('change', async (event) => {
     if (await loadScore(buildHanon1())) currentSong = 'hanon1';
   } else if (value === 'opened' && openedFile) {
     if (await loadScore(openedFile.data)) currentSong = 'opened';
+  } else {
+    // 앱에 넣어 둔 곡(scores 폴더): 고른 항목의 data-src 파일을 받아서 연다.
+    const src = [...$('song').options].find((o) => o.value === value)?.dataset.src;
+    const data = src && (await fetchScore(src));
+    if (data && (await loadScore(data))) currentSong = value;
   }
   $('song').value = currentSong;
   showTitle();
