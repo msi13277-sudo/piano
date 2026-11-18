@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1b1d22" media="(prefers-color-scheme: dark)">
   <title>피아노 연습</title>
-  <link rel="stylesheet" href="css/style.css?v=16">
+  <link rel="stylesheet" href="css/style.css?v=17">
 </head>
 <body>
   <header class="topbar">
@@ -98,7 +98,7 @@
         <button id="connect">블루투스 직접 연결</button>
         <button id="connect-all" hidden>모든 기기 보기</button>
       </div>
-      <p id="version" class="hint">v16</p>
+      <p id="version" class="hint">v17</p>
     </aside>
   </div>
 
@@ -116,9 +116,17 @@
             <option value="left">왼손</option>
           </select>
         </label>
-        <label class="field">빠르기
-          <span class="inline"><input id="bpm" type="number" min="20" max="240" step="1" inputmode="numeric"><span class="unit">BPM</span></span>
-        </label>
+        <div class="field wide">빠르기
+          <span class="stepper">
+            <button data-bpm-step="-10">-10</button>
+            <button data-bpm-step="-5">-5</button>
+            <button data-bpm-step="-1">-1</button>
+            <input id="bpm" type="number" min="20" max="240" step="1" inputmode="numeric" aria-label="빠르기(BPM)">
+            <button data-bpm-step="1">+1</button>
+            <button data-bpm-step="5">+5</button>
+            <button data-bpm-step="10">+10</button>
+          </span>
+        </div>
         <label class="field tempo-only">박자 허용
           <select id="tol">
             <option value="0.06">엄격</option>
@@ -132,6 +140,9 @@
             <option value="phone">폰 스피커</option>
             <option value="piano">피아노로 재생</option>
           </select>
+        </label>
+        <label class="field">듣기 볼륨
+          <span class="inline"><input id="volume" type="range" min="5" max="100" step="5"><span id="volume-out" class="unit"></span></span>
         </label>
         <div class="field">악보 크기
           <span class="inline">
@@ -175,6 +186,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
-  <script type="module" src="js/app.js?v=16"></script>
+  <script type="module" src="js/app.js?v=17"></script>
 </body>
 </html>

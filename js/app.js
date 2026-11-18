@@ -1,20 +1,20 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=16';
+import { buildHanon1 } from './hanon.js?v=17';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=16';
-import * as sound from './sound.js?v=16';
+} from './midi.js?v=17';
+import * as sound from './sound.js?v=17';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
 const COLOR_TIMING = '#9333ea'; // 음은 맞지만 박자가 어긋남
 const COLOR_BAD = '#dc2626'; // 틀리거나 놓침
 const COLOR_PLAIN = '#000000';
-const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const COUNT_IN_BEATS = 4;
 
 const $ = (id) => document.getElementById(id);
@@ -69,6 +69,7 @@ const state = {
 
   // 듣기와 녹음
   soundOut: 'phone', // 'phone' 또는 'piano'
+  volume: 70, // 듣기 볼륨(0~100)
   playing: false, // 듣기나 녹음 재생이 진행 중
   listening: false, // 그중 악보 듣기
   combo: 0, // 한 번에 맞힌 자리가 이어진 개수
@@ -117,7 +118,7 @@ function flashWrong() {
 
 // ---------- 설정 저장 ----------
 
-const PREF_KEYS = ['mode', 'bpm', 'tol', 'metronome', 'soundOut'];
+const PREF_KEYS = ['mode', 'bpm', 'tol', 'metronome', 'soundOut', 'volume'];
 
 function loadPrefs() {
   try {
@@ -152,6 +153,9 @@ function syncControls() {
   $('loop').checked = state.loop;
   $('sound-out').value = state.soundOut;
   sound.setTarget(state.soundOut);
+  $('volume').value = state.volume;
+  $('volume-out').textContent = `${state.volume}%`;
+  sound.setVolume(state.volume / 100);
   $('from').value = state.from;
   $('to').value = state.to;
   $('from').min = $('to').min = state.firstMeasure;
@@ -297,6 +301,7 @@ function buildSteps(from, to) {
       hits: new Set(),
       wrongs: 0,
       wrongNotes: [],
+      missed: new Set(), // 틀린 건반 때문에 빨갛게 표시한 음
       result: null,
       off: false,
       sec: 0,
@@ -391,6 +396,25 @@ function handleNoteOn(midi) {
   else waitNoteOn(midi);
 }
 
+// 틀린 건반을 눌렀을 때 원래 치려던 음을 고른다: 아직 안 쳤고 아직 틀렸다고 표시하지 않은 음 중
+// 친 건반과 높이가 가장 가까운 음. 모두 표시됐으면 표시된 음 중에서 고른다.
+function intendedNote(step, hits, played) {
+  const open = step.notes.map((n) => n.midi).filter((m) => !hits.has(m));
+  const fresh = open.filter((m) => !step.missed.has(m));
+  const pool = fresh.length ? fresh : open;
+  let best = null;
+  for (const m of pool) {
+    if (best == null || Math.abs(m - played) < Math.abs(best - played)) best = m;
+  }
+  return best;
+}
+
+function wrongText(played, target) {
+  return target == null
+    ? `틀린 음 ${noteName(played)}`
+    : `틀린 음 ${noteName(played)} → 쳐야 할 음 ${noteName(target)}`;
+}
+
 // ---------- 연주 모드: 틀려도 빨갛게 표시만 하고 다음으로 넘어간다 ----------
 
 function performNoteOn(midi) {
@@ -448,8 +472,9 @@ function performNoteOn(midi) {
   // (3) 틀린 음
   step.wrongs++;
   step.wrongNotes.push(midi);
-  const want = [...expected].sort((a, b) => a - b).map(noteName).join(', ');
-  setMessage(`틀린 음 ${noteName(midi)} (악보: ${want})`, 'bad');
+  const target = intendedNote(step, step.hits, midi);
+  if (target != null) step.missed.add(target);
+  setMessage(wrongText(midi, target), 'bad');
   flashWrong();
   completePerformStep(step, expected);
 }
@@ -495,11 +520,15 @@ function waitNoteOn(midi) {
     setCombo(0);
     state.stats.wrong++;
     bumpMeasure(step.measure);
-    for (const n of step.notes) {
-      if (!state.hit.has(n.midi)) paint(n.note, COLOR_BAD);
+    // 화음이면 아직 안 친 음 중에서 친 건반과 가장 가까운 음을 "치려던 음"으로 보고 그것만 빨갛게 한다.
+    const target = intendedNote(step, state.hit, midi);
+    if (target != null) {
+      step.missed.add(target);
+      for (const n of step.notes) {
+        if (n.midi === target) paint(n.note, COLOR_BAD);
+      }
     }
-    const want = [...expected].sort((a, b) => a - b).map(noteName).join(', ');
-    setMessage(`틀린 음 ${noteName(midi)} → 쳐야 할 음 ${want}`, 'bad');
+    setMessage(wrongText(midi, target), 'bad');
     flashWrong();
     updateStatus();
     return;
@@ -507,17 +536,18 @@ function waitNoteOn(midi) {
 
   if (state.hit.has(midi)) return;
   state.hit.add(midi);
-  const color = state.stepMistake ? COLOR_FIXED : COLOR_OK;
+  // 빨갛던 음을 맞게 고쳐 쳤으면 주황, 처음부터 맞게 쳤으면 초록.
+  const fixed = step.missed.has(midi);
   for (const n of step.notes) {
-    if (n.midi === midi) paint(n.note, color);
+    if (n.midi === midi) paint(n.note, fixed ? COLOR_FIXED : COLOR_OK);
   }
+  if (fixed) celebrateFix(step.notes.filter((n) => n.midi === midi));
   if (state.hit.size < expected.size) return;
 
   // 이 지점의 음을 모두 맞혔다.
   step.result = state.stepMistake ? 'fixed' : 'ok';
   if (state.stepMistake) {
     setMessage('');
-    celebrateFix(step.notes); // 틀렸던 자리를 맞게 고쳐 쳤다
   } else {
     state.stats.ok++;
     setCombo(state.combo + 1);
@@ -1571,12 +1601,25 @@ $('mode').addEventListener('click', (event) => {
   if (state.loaded) newPractice();
 });
 
-$('bpm').addEventListener('change', (event) => {
-  const value = Math.round(Number(event.target.value));
-  state.bpm = Math.min(240, Math.max(20, value || 60));
-  event.target.value = state.bpm;
+function setBpm(value) {
+  state.bpm = Math.min(240, Math.max(20, Math.round(value) || 60));
+  $('bpm').value = state.bpm;
   savePrefs();
-  if (state.loaded) newPractice();
+  // 빠르기를 여러 번 연달아 누르는 동안에는 연습을 매번 새로 시작하지 않는다.
+  clearTimeout(setBpm.timer);
+  setBpm.timer = setTimeout(() => state.loaded && newPractice(), 600);
+}
+
+$('bpm').addEventListener('change', (event) => setBpm(Number(event.target.value)));
+for (const button of document.querySelectorAll('[data-bpm-step]')) {
+  button.addEventListener('click', () => setBpm(state.bpm + Number(button.dataset.bpmStep)));
+}
+
+$('volume').addEventListener('input', (event) => {
+  state.volume = Number(event.target.value);
+  $('volume-out').textContent = `${state.volume}%`;
+  sound.setVolume(state.volume / 100);
+  savePrefs();
 });
 
 $('tol').addEventListener('change', (event) => {

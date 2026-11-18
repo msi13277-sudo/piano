@@ -1,5 +1,5 @@
 // 소리 내기: 폰 스피커(녹음된 피아노 음색) 또는 연결된 피아노(MIDI 출력).
-import { getMidiOutputs } from './midi.js?v=16';
+import { getMidiOutputs } from './midi.js?v=17';
 
 // 피아노 음색: Salamander Grand Piano (Alexander Holm, CC BY 3.0).
 // 단3도 간격으로 녹음된 30개 음을 받아 두고, 사이 음은 가장 가까운 음의 속도를 바꿔서 낸다.
@@ -13,6 +13,16 @@ let ctx = null;
 let master = null;
 let wanted = 'phone'; // 사용자가 고른 출력
 let usedPiano = false;
+let volume = 0.7; // 듣기와 녹음 재생의 소리 크기(0~1). 메트로놈에는 쓰지 않는다.
+
+export function setVolume(value) {
+  volume = Math.min(1, Math.max(0, value));
+}
+
+// 피아노로 보낼 때는 건반을 누르는 세기를 줄여서 소리를 작게 한다.
+function scaledVelocity(velocity) {
+  return Math.max(1, Math.min(127, Math.round(velocity * volume)));
+}
 const voices = new Set();
 
 const rawSamples = new Map(); // midi → 내려받은 파일
@@ -121,7 +131,7 @@ function sampleNote(midi, velocity, delay, duration) {
   source.buffer = buffers.get(nearest);
   source.playbackRate.value = 2 ** ((midi - nearest) / 12);
 
-  const level = 0.12 + 0.88 * (velocity / 127) ** 1.8;
+  const level = (0.12 + 0.88 * (velocity / 127) ** 1.8) * volume;
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(level, at);
   gain.gain.setValueAtTime(level, at + duration);
@@ -138,7 +148,7 @@ function sampleNote(midi, velocity, delay, duration) {
 function synthNote(midi, velocity, delay, duration) {
   const at = ctx.currentTime + Math.max(0, delay);
   const freq = 440 * 2 ** ((midi - 69) / 12);
-  const peak = 0.05 + 0.3 * (velocity / 127) ** 1.6;
+  const peak = (0.05 + 0.3 * (velocity / 127) ** 1.6) * volume + 0.0002;
   const decay = Math.min(2.2, Math.max(0.25, 0.9 * 2 ** ((60 - midi) / 24)));
 
   const envelope = ctx.createGain();
@@ -164,7 +174,7 @@ export function playNote(midi, velocity, delay, duration) {
     usedPiano = true;
     const at = performance.now() + Math.max(0, delay) * 1000;
     for (const out of getMidiOutputs()) {
-      out.send([0x90, midi, velocity], at);
+      out.send([0x90, midi, scaledVelocity(velocity)], at);
       out.send([0x80, midi, 0], at + duration * 1000);
     }
     return;
@@ -177,7 +187,11 @@ export function playNote(midi, velocity, delay, duration) {
 export function sendRaw(data, delay) {
   usedPiano = true;
   const at = performance.now() + Math.max(0, delay) * 1000;
-  for (const out of getMidiOutputs()) out.send(data, at);
+  let message = data;
+  if ((data[0] & 0xf0) === 0x90 && data[2] > 0) {
+    message = [data[0], data[1], scaledVelocity(data[2])];
+  }
+  for (const out of getMidiOutputs()) out.send(message, at);
 }
 
 export function sampleCount() {
