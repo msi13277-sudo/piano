@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=17';
+import { buildHanon1 } from './hanon.js?v=18';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=17';
-import * as sound from './sound.js?v=17';
+} from './midi.js?v=18';
+import * as sound from './sound.js?v=18';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -302,6 +302,7 @@ function buildSteps(from, to) {
       wrongs: 0,
       wrongNotes: [],
       missed: new Set(), // 틀린 건반 때문에 빨갛게 표시한 음
+      wrongPairs: [], // 틀린 건반과 그때 치려던 음의 짝
       result: null,
       off: false,
       sec: 0,
@@ -409,10 +410,25 @@ function intendedNote(step, hits, played) {
   return best;
 }
 
-function wrongText(played, target) {
-  return target == null
-    ? `틀린 음 ${noteName(played)}`
-    : `틀린 음 ${noteName(played)} → 쳐야 할 음 ${noteName(target)}`;
+// 이 자리에서 틀린 음을 모두 보여준다. 이미 고쳐 친 음은 뺀다.
+// 예: "틀린 음 C#4, F4, G#4 → 쳐야 할 음 C4, E4, G4"
+function wrongText(step, hits) {
+  const pairs = [];
+  const seen = new Set();
+  for (const pair of step.wrongPairs) {
+    if (pair.target != null && hits.has(pair.target)) continue;
+    const key = `${pair.played}|${pair.target}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pairs.push(pair);
+  }
+  if (!pairs.length) return '';
+  pairs.sort((a, b) => (a.target ?? a.played) - (b.target ?? b.played));
+  const played = pairs.map((p) => noteName(p.played)).join(', ');
+  const targets = pairs.filter((p) => p.target != null).map((p) => noteName(p.target));
+  return targets.length
+    ? `틀린 음 ${played} → 쳐야 할 음 ${[...new Set(targets)].join(', ')}`
+    : `틀린 음 ${played}`;
 }
 
 // ---------- 연주 모드: 틀려도 빨갛게 표시만 하고 다음으로 넘어간다 ----------
@@ -474,7 +490,8 @@ function performNoteOn(midi) {
   step.wrongNotes.push(midi);
   const target = intendedNote(step, step.hits, midi);
   if (target != null) step.missed.add(target);
-  setMessage(wrongText(midi, target), 'bad');
+  step.wrongPairs.push({ played: midi, target });
+  setMessage(wrongText(step, step.hits), 'bad');
   flashWrong();
   completePerformStep(step, expected);
 }
@@ -528,7 +545,8 @@ function waitNoteOn(midi) {
         if (n.midi === target) paint(n.note, COLOR_BAD);
       }
     }
-    setMessage(wrongText(midi, target), 'bad');
+    step.wrongPairs.push({ played: midi, target });
+    setMessage(wrongText(step, state.hit), 'bad');
     flashWrong();
     updateStatus();
     return;
@@ -541,7 +559,11 @@ function waitNoteOn(midi) {
   for (const n of step.notes) {
     if (n.midi === midi) paint(n.note, fixed ? COLOR_FIXED : COLOR_OK);
   }
-  if (fixed) celebrateFix(step.notes.filter((n) => n.midi === midi));
+  if (fixed) {
+    celebrateFix(step.notes.filter((n) => n.midi === midi));
+    const left = wrongText(step, state.hit);
+    if (left) setMessage(left, 'bad');
+  }
   if (state.hit.size < expected.size) return;
 
   // 이 지점의 음을 모두 맞혔다.
