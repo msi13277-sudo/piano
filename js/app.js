@@ -1,13 +1,13 @@
 // ?v= 숫자는 브라우저가 예전 파일을 계속 쓰지 않게 하려는 것. index.html의 버전과 함께 올린다.
-import { buildHanon1 } from './hanon.js?v=18';
+import { buildHanon1 } from './hanon.js?v=19';
 import {
   bluetoothSupported,
   webMidiSupported,
   connectBluetooth,
   connectWebMidi,
   getMidiOutputs,
-} from './midi.js?v=18';
-import * as sound from './sound.js?v=18';
+} from './midi.js?v=19';
+import * as sound from './sound.js?v=19';
 
 const COLOR_OK = '#16a34a'; // 한 번에(박자까지) 맞힘
 const COLOR_FIXED = '#d97706'; // 틀린 뒤 고쳐서 맞힘
@@ -302,7 +302,6 @@ function buildSteps(from, to) {
       wrongs: 0,
       wrongNotes: [],
       missed: new Set(), // 틀린 건반 때문에 빨갛게 표시한 음
-      wrongPairs: [], // 틀린 건반과 그때 치려던 음의 짝
       result: null,
       off: false,
       sec: 0,
@@ -397,40 +396,6 @@ function handleNoteOn(midi) {
   else waitNoteOn(midi);
 }
 
-// 틀린 건반을 눌렀을 때 원래 치려던 음을 고른다: 아직 안 쳤고 아직 틀렸다고 표시하지 않은 음 중
-// 친 건반과 높이가 가장 가까운 음. 모두 표시됐으면 표시된 음 중에서 고른다.
-function intendedNote(step, hits, played) {
-  const open = step.notes.map((n) => n.midi).filter((m) => !hits.has(m));
-  const fresh = open.filter((m) => !step.missed.has(m));
-  const pool = fresh.length ? fresh : open;
-  let best = null;
-  for (const m of pool) {
-    if (best == null || Math.abs(m - played) < Math.abs(best - played)) best = m;
-  }
-  return best;
-}
-
-// 이 자리에서 틀린 음을 모두 보여준다. 이미 고쳐 친 음은 뺀다.
-// 예: "틀린 음 C#4, F4, G#4 → 쳐야 할 음 C4, E4, G4"
-function wrongText(step, hits) {
-  const pairs = [];
-  const seen = new Set();
-  for (const pair of step.wrongPairs) {
-    if (pair.target != null && hits.has(pair.target)) continue;
-    const key = `${pair.played}|${pair.target}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    pairs.push(pair);
-  }
-  if (!pairs.length) return '';
-  pairs.sort((a, b) => (a.target ?? a.played) - (b.target ?? b.played));
-  const played = pairs.map((p) => noteName(p.played)).join(', ');
-  const targets = pairs.filter((p) => p.target != null).map((p) => noteName(p.target));
-  return targets.length
-    ? `틀린 음 ${played} → 쳐야 할 음 ${[...new Set(targets)].join(', ')}`
-    : `틀린 음 ${played}`;
-}
-
 // ---------- 연주 모드: 틀려도 빨갛게 표시만 하고 다음으로 넘어간다 ----------
 
 function performNoteOn(midi) {
@@ -488,10 +453,6 @@ function performNoteOn(midi) {
   // (3) 틀린 음
   step.wrongs++;
   step.wrongNotes.push(midi);
-  const target = intendedNote(step, step.hits, midi);
-  if (target != null) step.missed.add(target);
-  step.wrongPairs.push({ played: midi, target });
-  setMessage(wrongText(step, step.hits), 'bad');
   flashWrong();
   completePerformStep(step, expected);
 }
@@ -537,16 +498,12 @@ function waitNoteOn(midi) {
     setCombo(0);
     state.stats.wrong++;
     bumpMeasure(step.measure);
-    // 화음이면 아직 안 친 음 중에서 친 건반과 가장 가까운 음을 "치려던 음"으로 보고 그것만 빨갛게 한다.
-    const target = intendedNote(step, state.hit, midi);
-    if (target != null) {
-      step.missed.add(target);
-      for (const n of step.notes) {
-        if (n.midi === target) paint(n.note, COLOR_BAD);
-      }
+    // 아직 안 친 음을 모두 빨갛게 한다. 이미 맞게 친 음은 초록 그대로 둔다.
+    for (const n of step.notes) {
+      if (state.hit.has(n.midi)) continue;
+      step.missed.add(n.midi);
+      paint(n.note, COLOR_BAD);
     }
-    step.wrongPairs.push({ played: midi, target });
-    setMessage(wrongText(step, state.hit), 'bad');
     flashWrong();
     updateStatus();
     return;
@@ -559,18 +516,12 @@ function waitNoteOn(midi) {
   for (const n of step.notes) {
     if (n.midi === midi) paint(n.note, fixed ? COLOR_FIXED : COLOR_OK);
   }
-  if (fixed) {
-    celebrateFix(step.notes.filter((n) => n.midi === midi));
-    const left = wrongText(step, state.hit);
-    if (left) setMessage(left, 'bad');
-  }
+  if (fixed) celebrateFix(step.notes.filter((n) => n.midi === midi));
   if (state.hit.size < expected.size) return;
 
   // 이 지점의 음을 모두 맞혔다.
   step.result = state.stepMistake ? 'fixed' : 'ok';
-  if (state.stepMistake) {
-    setMessage('');
-  } else {
+  if (!state.stepMistake) {
     state.stats.ok++;
     setCombo(state.combo + 1);
   }
@@ -694,7 +645,6 @@ function tempoNoteOn(midi) {
     const here = steps[state.pos];
     state.stats.wrong++;
     bumpMeasure(here?.measure);
-    setMessage(`틀린 음 ${noteName(midi)}`, 'bad');
     flashWrong();
     updateStatus();
     return;
